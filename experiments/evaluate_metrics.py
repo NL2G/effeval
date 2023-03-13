@@ -9,10 +9,10 @@ from experiments.call_metrics.moverscore import moverscore
 from experiments.call_metrics.baryscore import baryscore
 from experiments.call_metrics.bartscore import bartscore
 from experiments.call_metrics.xmoverscore import xmoverscore
-from experiments.call_metrics.sentsim import sentsim
+#from experiments.call_metrics.sentsim import sentsim
 from experiments.call_metrics.frugalscore import frugalscore
-from experiments.call_metrics.comet import comet
-from experiments.call_metrics.transquest import transquest
+#from experiments.call_metrics.comet import comet
+#from experiments.call_metrics.transquest import transquest
 from load_data import load_data
 from transformers import AutoModel
 from config import model_name
@@ -21,7 +21,7 @@ import torch
 import time
 
 split_data = 0
-batch_size = 1
+batch_size = 128
 
 env_string = 'env1'
 
@@ -41,104 +41,118 @@ def main():
 
     ### reference-based metrics
 
-    metrics = [bertscore, moverscore, baryscore]
-    models = ['bert', 'bert-tiny', 'distilbert', 'tinybert', 'deebert-mnli']
+    # quantized models
+    metrics = [bertscore]
+    models = [
+        'qbert-tiny-non-quantized', 
+        'qbert-tiny-dynamic-quantized-arm64',
+        'qbert-tiny-dynamic-quantized-avx2',
+        'qbert-tiny-static-quantized-arm64',
+        'qbert-tiny-static-quantized-avx2',
+        'bert-tiny'
+    ]
     datasets = ['wmt15', 'wmt16', 'wmt21']
     device = 'cpu'
     evaluate_metrics(metrics, models, datasets, device)
+
+    #metrics = [bertscore, moverscore, baryscore]
+    #models = ['bert', 'bert-tiny', 'distilbert', 'tinybert', 'deebert-mnli']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
     # only bertscore needs roberta-large as baseline
-    metrics = [bertscore]
-    models = ['roberta-large']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [bertscore]
+    #models = ['roberta-large']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
     # moverscore with wmd variations
-    models = ['bert', 'tinybert']
-    distances = ['wcd', 'rwmd']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device, distances=distances)
+    #models = ['bert', 'tinybert']
+    #distances = ['wcd', 'rwmd']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device, distances=distances)
 
     # bartscore
-    metrics = [bartscore]
-    models = ['bart-large-cnn+pth', 'bart-large-cnn', 'bart', 'distilbart66', 'distilbart123', 'distilbart-t2s', 'distilbart-mnli9']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [bartscore]
+    #models = ['bart-large-cnn+pth', 'bart-large-cnn', 'bart', 'distilbart66', 'distilbart123', 'distilbart-t2s', 'distilbart-mnli9']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
     ### reference-free metrics
 
-    metrics = [xmoverscore, sentsim]
-    models = ['mbert', 'xlmr', 'xtremedistil', 'mminilm6', 'mminilm12']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [xmoverscore, sentsim]
+    #models = ['mbert', 'xlmr', 'xtremedistil', 'mminilm6', 'mminilm12']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
-    metrics = [sentsim]
-    models = ['distilmbert']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [sentsim]
+    #models = ['distilmbert']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
     # xmoverscore language models
-    metrics = [xmoverscore]
-    models = ['mbert']
-    model2s = ['distilgpt2']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device, model2s=model2s)
+    #metrics = [xmoverscore]
+    #models = ['mbert']
+    #model2s = ['distilgpt2']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device, model2s=model2s)
 
     # sentsim sentence embedding models
-    metrics = [sentsim]
-    models = ['xlmr', 'mminilm12']
-    model2s = ['use2', 'pminilm12', 'pmpnet']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device, model2s=model2s)
+    #metrics = [sentsim]
+    #models = ['xlmr', 'mminilm12']
+    #model2s = ['use2', 'pminilm12', 'pmpnet']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device, model2s=model2s)
 
     # xmoverscore with wmd variations
-    models = ['mbert']
-    distances = ['wcd', 'rwmd']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device, distances=distances)
+    #models = ['mbert']
+    #distances = ['wcd', 'rwmd']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device, distances=distances)
 
-    metrics = [comet]
-    models = [
-        'xlmr-refbased-5',
-        'xlmr-refbased-10',
-        'mminilm12-refbased-5',
-        'mminilm12-refbased-10'
-    ]
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [comet]
+    #models = [
+    #    'xlmr-refbased-5',
+    #    'xlmr-refbased-10',
+    #    'mminilm12-refbased-5',
+    #    'mminilm12-refbased-10'
+    #]
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
-    metrics = [transquest]
-    models = [
-        'tq-xlmr-large',
-        'tq-xlmr',
-        'tq-mminilm12',
-        'tq-mminilm6',
-        'tq-xlmr-large-adapter',
-        'tq-xlmr-adapter',
-        'tq-mminilm12-adapter',
-        'tq-mminilm6-adapter'
-    ]
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [transquest]
+    #models = [
+    #    'tq-xlmr-large',
+    #    'tq-xlmr',
+    #    'tq-mminilm12',
+    #    'tq-mminilm6',
+    #    'tq-xlmr-large-adapter',
+    #    'tq-xlmr-adapter',
+    #    'tq-mminilm12-adapter',
+    #    'tq-mminilm6-adapter'
+    #]
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
     ### frugalscore
-    metrics = [frugalscore]
-    models = ['fs-tiny-b', 'fs-tiny-r', 'fs-tiny-d', 'fs-tiny-ms',
-              'fs-small-b', 'fs-small-r', 'fs-small-d', 'fs-small-ms',
-              'fs-medium-b', 'fs-medium-r', 'fs-medium-d', 'fs-medium-ms']
-    datasets = ['wmt15', 'wmt16', 'wmt21']
-    device = 'cpu'
-    evaluate_metrics(metrics, models, datasets, device)
+    #metrics = [frugalscore]
+    #models = ['fs-tiny-b', 'fs-tiny-r', 'fs-tiny-d', 'fs-tiny-ms',
+    #          'fs-small-b', 'fs-small-r', 'fs-small-d', 'fs-small-ms',
+    #          'fs-medium-b', 'fs-medium-r', 'fs-medium-d', 'fs-medium-ms']
+    #datasets = ['wmt15', 'wmt16', 'wmt21']
+    #device = 'cpu'
+    #evaluate_metrics(metrics, models, datasets, device)
 
 
 def setup_before_first_usage():

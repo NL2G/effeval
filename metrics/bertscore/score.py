@@ -100,7 +100,10 @@ def score(
         lang = lang.lower()
         model_type = lang2model[lang]
     if num_layers is None:
-        num_layers = model2layers[model_type]
+        if 'quantized' in model_type:
+            num_layers = None
+        else:
+            num_layers = model2layers[model_type]
 
     tokenizer = get_tokenizer(model_type, use_fast_tokenizer)
     model = get_model(model_type, num_layers, all_layers)
