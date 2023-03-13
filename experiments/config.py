@@ -11,6 +11,15 @@ bartscore_pth_file = '../../bart.pth'
 # this dictionary maps short names of models (usually used in their papers)
 # to their full names on huggingface.com (to indentify and download them)
 model_name = {
+    'qbert-tiny-non-quantized': "Rexhaif/bert-tiny-non-quantized-1L-any",
+    'qbert-tiny-dynamic-quantized-arm64': "Rexhaif/bert-tiny-dynamic-quantized-1L-arm64",
+    'qbert-tiny-dynamic-quantized-avx2': "Rexhaif/bert-tiny-dynamic-quantized-1L-avx2",
+    'qbert-tiny-static-quantized-arm64': "Rexhaif/bert-tiny-static-quantized-1L-arm64",
+    'qbert-tiny-static-quantized-avx2': "Rexhaif/bert-tiny-static-quantized-1L-avx2",
+    'bert-tiny': 'google/bert_uncased_L-2_H-128_A-2',
+}
+"""
+model_name = {
     ### monolingual models
     'bert': 'bert-base-uncased',
     'roberta-large': 'roberta-large',
@@ -101,3 +110,4 @@ model_name = {
     'tq-mminilm6-adapter': '/home/vagrant/transquest/mminilm6-adapter/best_model',
     'tq-mminilm12-adapter': '/home/vagrant/transquest/mminilm12-adapter/best_model',
 }
+"""

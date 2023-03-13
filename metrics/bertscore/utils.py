@@ -13,6 +13,8 @@ from distutils.version import LooseVersion
 from transformers import BertConfig, XLNetConfig, XLMConfig, RobertaConfig
 from transformers import AutoModel, GPT2Tokenizer, AutoTokenizer
 
+from optimum.onnxruntime import ORTModelForFeatureExtraction
+
 from transformers import __version__ as trans_version
 
 __all__ = []
@@ -235,6 +237,16 @@ def sent_encode(tokenizer, sent):
 
 
 def get_model(model_type, num_layers, all_layers=None):
+
+    if 'quantized' in model_type:
+        # loading quantized models
+        if "non-quantized" in model_type:
+            file_name = "model.onnx"
+        else:
+            file_name = "model_quantized.onnx"
+        model = ORTModelForFeatureExtraction.from_pretrained(model_type, file_name=file_name)
+        return model
+
     if model_type.startswith("scibert"):
         model = AutoModel.from_pretrained(cache_scibert(model_type))
     elif "t5" in model_type:
@@ -326,9 +338,13 @@ def padding(arr, pad_token, dtype=torch.long):
 
 
 def bert_encode(model, x, attention_mask, all_layers=False):
-    model.eval()
-    with torch.no_grad():
-        out = model(x, attention_mask=attention_mask, output_hidden_states=all_layers)
+    if type(model) == ORTModelForFeatureExtraction:
+        token_type_ids = torch.zeros_like(attention_mask)
+        out = model(x, attention_mask=attention_mask, token_type_ids=token_type_ids, output_hidden_states=all_layers)
+    else:
+        model.eval()
+        with torch.no_grad():
+            out = model(x, attention_mask=attention_mask, output_hidden_states=all_layers)
     if all_layers:
         emb = torch.stack(out[-1], dim=2)
     else:
@@ -568,7 +584,11 @@ def bert_cos_score_idf(
         pad_mask = length_to_mask(lens).to(device)
         return emb_pad, pad_mask, idf_pad
 
-    device = next(model.parameters()).device
+    if type(model) == ORTModelForFeatureExtraction:
+        device = "cpu"
+    else:
+        device = next(model.parameters()).device
+        
     iter_range = range(0, len(refs), batch_size)
     if verbose:
         print("computing greedy matching.")
