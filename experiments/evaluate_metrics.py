@@ -44,12 +44,10 @@ def main():
     # quantized models
     metrics = [bertscore]
     models = [
-        'qbert-tiny-non-quantized', 
-        'qbert-tiny-dynamic-quantized-arm64',
-        'qbert-tiny-dynamic-quantized-avx2',
-        'qbert-tiny-static-quantized-arm64',
-        'qbert-tiny-static-quantized-avx2',
-        'bert-tiny'
+        'qbert-base-uncased-non-quantized', 
+        'qbert-base-uncased-dynamic-quantized',
+        'qbert-base-uncased-static-quantized',
+        'bert'
     ]
     datasets = ['wmt15', 'wmt16', 'wmt21']
     device = 'cpu'

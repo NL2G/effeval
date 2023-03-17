@@ -16,7 +16,11 @@ model_name = {
     'qbert-tiny-dynamic-quantized-avx2': "Rexhaif/bert-tiny-dynamic-quantized-1L-avx2",
     'qbert-tiny-static-quantized-arm64': "Rexhaif/bert-tiny-static-quantized-1L-arm64",
     'qbert-tiny-static-quantized-avx2': "Rexhaif/bert-tiny-static-quantized-1L-avx2",
+    'qbert-base-uncased-non-quantized': "nllg/bert-base-uncased-quantized-9L-non",
+    'qbert-base-uncased-dynamic-quantized': "nllg/bert-base-uncased-quantized-9L-dynamic",
+    'qbert-base-uncased-static-quantized': "nllg/bert-base-uncased-quantized-9L-static",
     'bert-tiny': 'google/bert_uncased_L-2_H-128_A-2',
+    'bert': 'bert-base-uncased',
 }
 """
 model_name = {

@@ -22,26 +22,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 models = {
-    #"bert-base-uncased": {
-    #    "model": "bert-base-uncased",
-    #    "n_layers": 9,
-    #    "repo_id": "nllg/bert-base-uncased-quantized-9L-{quantization_mode}-{hardware}",
-    #},
+    "bert-base-uncased": {
+        "model": "bert-base-uncased",
+        "n_layers": 9,
+        "repo_id": "nllg/bert-base-uncased-quantized-9L-{quantization_mode}",
+    },
     #"distilbert-base-uncased": {
     #    "model": "distilbert-base-uncased",
     #    "n_layers": 5,
-    #    "repo_id": "nllg/distilbert-base-uncased-quantized-5L-{quantization_mode}-{hardware}",
+    #    "repo_id": "nllg/distilbert-base-uncased-quantized-5L-{quantization_mode}",
     #},
     #"tinybert": {
     #    "model": "huawei-noah/TinyBERT_General_4L_312D",
     #    "n_layers": 4,
     #    "repo_id": "nllg/tinybert-quantized-4L-{quantization_mode}-{hardware}",
     #},
-    "bert-tiny": {
-        "model": "google/bert_uncased_L-2_H-128_A-2",
-        "n_layers": 1,
-        "repo_id": "Rexhaif/bert-tiny-{quantization_mode}-quantized-1L-{hardware}",
-    },
+    #"bert-tiny": {
+    #    "model": "google/bert_uncased_L-2_H-128_A-2",
+    #    "n_layers": 1,
+    #    "repo_id": "Rexhaif/bert-tiny-{quantization_mode}-quantized-1L-{hardware}",
+    #},
 }
 
 def load_wmt_data(max_size: int = 2500) -> Dataset:
@@ -191,7 +191,7 @@ if __name__ == "__main__":
     for model_name, model_info in models.items():
         logger.info(f"Creating quantized models for {model_name} with {model_info['n_layers']} layers")
         for quantization_mode in ["dynamic", "non", "static"]:
-            hardware_list = ['avx2', 'arm64'] if quantization_mode != "non" else ['any']
+            hardware_list = ['avx2'] if quantization_mode != "non" else ['any']
             for hardware in hardware_list:
                 model_path = prepare_model(model_info["model"], model_info["n_layers"])
                 logger.info(f"Creating {quantization_mode} quantized model for {hardware}")
@@ -212,7 +212,7 @@ if __name__ == "__main__":
 
                 logger.info("Pushing quantized model to Hugging Face Hub")
                 model = ORTModelForFeatureExtraction.from_pretrained(model_path, file_name=file_name)
-                repository_id = model_info["repo_id"].format(quantization_mode=quantization_mode, hardware=hardware)
+                repository_id = model_info["repo_id"].format(quantization_mode=quantization_mode)
                 model.push_to_hub(model_path, repository_id)
 
     logger.info("Done")

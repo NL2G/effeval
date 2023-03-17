@@ -240,7 +240,7 @@ def get_model(model_type, num_layers, all_layers=None):
 
     if 'quantized' in model_type:
         # loading quantized models
-        if "non-quantized" in model_type:
+        if "non" in model_type:
             file_name = "model.onnx"
         else:
             file_name = "model_quantized.onnx"
