@@ -199,8 +199,8 @@ class MoverScorer:
                         right_sum += min(wj)       # * weight
                     score = -max(left_sum, right_sum)
                 else:            # wmd
-                    c1 = np.zeros(raw.shape[1], dtype=np.float)
-                    c2 = np.zeros(raw.shape[1], dtype=np.float)
+                    c1 = np.zeros(raw.shape[1], dtype=np.float32)
+                    c2 = np.zeros(raw.shape[1], dtype=np.float32)
                     c1[:len(ref_idf[i])] = ref_idf[i]
                     c2[len(ref_idf[i]):] = hyp_idf[i]
 
@@ -242,8 +242,8 @@ class MoverScorer:
 
 
         i = 0
-        c1 = np.zeros(raw.shape[1], dtype=np.float)
-        c2 = np.zeros(raw.shape[1], dtype=np.float)
+        c1 = np.zeros(raw.shape[1], dtype=np.float32)
+        c2 = np.zeros(raw.shape[1], dtype=np.float32)
         c1[:len(ref_idf[i])] = ref_idf[i]
         c2[len(ref_idf[i]):] = hyp_idf[i]
 

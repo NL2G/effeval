@@ -11,12 +11,11 @@ bartscore_pth_file = '../../bart.pth'
 # this dictionary maps short names of models (usually used in their papers)
 # to their full names on huggingface.com (to indentify and download them)
 model_name = {
-    'qbert-tiny-non-quantized': "Rexhaif/bert-tiny-non-quantized-1L-any",
-    'qbert-tiny-dynamic-quantized-arm64': "Rexhaif/bert-tiny-dynamic-quantized-1L-arm64",
-    'qbert-tiny-dynamic-quantized-avx2': "Rexhaif/bert-tiny-dynamic-quantized-1L-avx2",
-    'qbert-tiny-static-quantized-arm64': "Rexhaif/bert-tiny-static-quantized-1L-arm64",
-    'qbert-tiny-static-quantized-avx2': "Rexhaif/bert-tiny-static-quantized-1L-avx2",
     'bert-tiny': 'google/bert_uncased_L-2_H-128_A-2',
+    'bert': 'bert-base-uncased',
+    'tinybert': 'huawei-noah/TinyBERT_General_4L_312D',
+    'distilbert': 'distilbert-base-uncased',
+    'deebert-mnli': 'ji-xin/bert_base-MNLI-two_stage'
 }
 """
 model_name = {

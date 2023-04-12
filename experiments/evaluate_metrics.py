@@ -21,7 +21,7 @@ import torch
 import time
 
 split_data = 0
-batch_size = 128
+batch_size = 1
 
 env_string = 'env1'
 
@@ -41,18 +41,22 @@ def main():
 
     ### reference-based metrics
 
-    # quantized models
+    # cpu models
     metrics = [bertscore]
     models = [
-        'qbert-tiny-non-quantized', 
-        'qbert-tiny-dynamic-quantized-arm64',
-        'qbert-tiny-dynamic-quantized-avx2',
-        'qbert-tiny-static-quantized-arm64',
-        'qbert-tiny-static-quantized-avx2',
-        'bert-tiny'
+        'bert-tiny', 'bert', 'tinybert', 'distilbert', 'deebert-mnli',
     ]
     datasets = ['wmt15', 'wmt16', 'wmt21']
     device = 'cpu'
+    evaluate_metrics(metrics, models, datasets, device)
+
+    # gpu models
+    metrics = [bertscore]
+    models = [
+        'bert-tiny', 'bert', 'tinybert', 'distilbert', 'deebert-mnli',
+    ]
+    datasets = ['wmt15', 'wmt16', 'wmt21']
+    device = 'gpu'
     evaluate_metrics(metrics, models, datasets, device)
 
     #metrics = [bertscore, moverscore, baryscore]
