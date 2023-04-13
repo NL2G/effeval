@@ -21,7 +21,7 @@ import torch
 import time
 
 split_data = 0
-batch_size = 1
+batch_size = 64
 
 env_string = 'env1'
 
