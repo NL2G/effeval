@@ -271,3 +271,4 @@ TSWLatexianTemp*
 
 # standalone packages
 *.sta
+metrics/comet
