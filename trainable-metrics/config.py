@@ -1,18 +1,18 @@
 DATA_CONFIG = {
     "comet": {
         "train": [
-            {
-                "path": "./data/2017-da.tar.gz",
-                "lps": "all",
-            },
-            {
-                "path": "./data/2018-da.tar.gz",
-                "lps": "all",
-            },
-            {
-                "path": "./data/2019-da.tar.gz",
-                "lps": "all",
-            },
+            #{
+            #    "path": "./data/2017-da.tar.gz",
+            #    "lps": "all",
+            #},
+            #{
+            #    "path": "./data/2018-da.tar.gz",
+            #    "lps": "all",
+            #},
+            #{
+            #    "path": "./data/2019-da.tar.gz",
+            #    "lps": "all",
+            #},
             {
                 "path": "./data/2020-da.tar.gz",
                 "lps": "all",
@@ -47,7 +47,7 @@ DATA_CONFIG = {
 
 TRAINING_CONFIG = {
     "comet": {
-        "nr_frozen_epochs": 0.3,
+        "nr_frozen_epochs": 0.0,
         'keep_embeddings_freezed': True,
         "encoder_lr": 1.0e-6,
         "estimator_lr": 1.5e-5,

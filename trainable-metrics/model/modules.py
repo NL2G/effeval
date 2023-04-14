@@ -95,12 +95,6 @@ class LayerwiseAttention(nn.Module):
 
         self.gamma = nn.Parameter(torch.FloatTensor([1.0]), requires_grad=True)
 
-        if self.dropout:
-            dropout_mask = torch.zeros(len(self.scalar_parameters))
-            dropout_fill = torch.empty(len(self.scalar_parameters)).fill_(-1e20)
-            self.register_buffer("dropout_mask", dropout_mask)
-            self.register_buffer("dropout_fill", dropout_fill)
-
     def forward(
         self,
         tensors: List[torch.Tensor],  # pylint: disable=arguments-differ
@@ -114,23 +108,6 @@ class LayerwiseAttention(nn.Module):
                 )
             )
 
-        def _layer_norm(tensor, broadcast_mask, mask):
-            tensor_masked = tensor * broadcast_mask
-            batch_size, _, input_dim = tensors[0].size()
-
-            # mean for each sentence
-            num_elements_not_masked = mask.sum(1) * input_dim
-            mean = tensor_masked.view(batch_size, -1).sum(1)
-            mean = (mean / num_elements_not_masked).view(batch_size, 1, 1)
-
-            variance = (((tensor_masked - mean) * broadcast_mask) ** 2).view(
-                batch_size, -1
-            ).sum(1) / num_elements_not_masked
-            normalized_tensor = (tensor - mean) / torch.sqrt(variance + 1e-12).view(
-                batch_size, 1, 1
-            )
-            return normalized_tensor
-
         # BUG: Pytorch bug fix when Parameters are not well copied across GPUs
         # https://github.com/pytorch/pytorch/issues/36035
         if len([parameter for parameter in self.scalar_parameters]) != self.num_layers:
@@ -140,25 +117,10 @@ class LayerwiseAttention(nn.Module):
             weights = torch.cat([parameter for parameter in self.scalar_parameters])
             gamma = self.gamma
 
-        if self.training and self.dropout:
-            weights = torch.where(
-                self.dropout_mask.uniform_() > self.dropout, weights, self.dropout_fill # type: ignore
-            )
-
         normed_weights = self.transform_fn(weights, dim=0)
         normed_weights = torch.split(normed_weights, split_size_or_sections=1)
 
-        if not self.layer_norm:
-            pieces = []
-            for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * tensor)
-            return gamma * sum(pieces)
-
-        else:
-            mask_float = mask.float() # type: ignore
-            broadcast_mask = mask_float.unsqueeze(-1)
-
-            pieces = []
-            for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * _layer_norm(tensor, broadcast_mask, mask_float))
-            return gamma * sum(pieces)
+        pieces = []
+        for weight, tensor in zip(normed_weights, tensors):
+            pieces.append(weight * tensor)
+        return gamma * sum(pieces)

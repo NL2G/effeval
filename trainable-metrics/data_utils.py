@@ -1,9 +1,10 @@
 import pandas as pd
 from datasets import Dataset
+import torch
 from sklearn.preprocessing import MinMaxScaler
 
-def load_data(csv_path: str, lps: list[str] | str = "all", domain: str = "news") -> pd.DataFrame:
-    dataset = pd.read_csv(csv_path)
+def load_data(path: str, lps: list[str] | str = "all", domain: str = "news") -> pd.DataFrame:
+    dataset = pd.read_csv(path)
     if lps != "all":
         dataset = dataset[dataset["lp"].isin(lps)]
     if domain != "all":
@@ -36,21 +37,21 @@ def load_from_config(
 def make_preprocessing_fn(tokenizer, max_length: int = 512):
     def preprocessing_function(examples):
         src_inputs = tokenizer(
-            examples["src"],
+            [str(x) for x in examples["src"]],
             max_length=max_length,
             padding="longest",
             truncation=True,
             return_tensors="pt",
         )
         mt_inputs = tokenizer(
-            examples["mt"],
+            [str(x) for x in examples["mt"]],
             max_length=max_length,
             padding="longest",
             truncation=True,
             return_tensors="pt",
         )
         ref_inputs = tokenizer(
-            examples["ref"],
+            [str(x) for x in examples["ref"]],
             max_length=max_length,
             padding="longest",
             truncation=True,
@@ -68,3 +69,27 @@ def make_preprocessing_fn(tokenizer, max_length: int = 512):
             result["labels"] = examples["score"]
         return result
     return preprocessing_function
+
+
+def make_collate_fn(tokenizer, max_length: int = 512):
+    
+    def collate_fn(examples):
+        batch = {}
+        for segment in {'src', 'mt', 'ref'}:
+            
+            output = tokenizer.pad(
+                [{'input_ids': i[f"{segment}_input_ids"]} for i in examples],
+                padding='longest',
+                max_length=max_length,
+                pad_to_multiple_of=8,
+                return_attention_mask=True,
+                return_tensors='pt'
+            )
+            batch[f"{segment}_input_ids"] = output['input_ids']
+            batch[f"{segment}_attention_mask"] = output['attention_mask']
+            
+        batch['labels'] = torch.tensor([x['labels'] for x in examples], dtype=torch.float32)
+        return batch
+    
+    return collate_fn
+            

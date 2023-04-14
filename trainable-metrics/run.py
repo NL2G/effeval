@@ -1,6 +1,7 @@
 from rich.logging import RichHandler
 import logging
 import torch
+import time
 import torch.nn as nn
 import wandb
 from tqdm.auto import tqdm
@@ -13,7 +14,7 @@ from scipy.stats import kendalltau
 import pandas as pd
 from accelerate import Accelerator
 
-from data_utils import make_preprocessing_fn, load_from_config
+from data_utils import make_preprocessing_fn, load_from_config, make_collate_fn
 from model.comet import Comet
 from config import DATA_CONFIG, TRAINING_CONFIG
 
@@ -51,7 +52,7 @@ def prepare_args():
     )
     parser.add_argument(
         "--use-adapters",
-        default=True,
+        default=False,
         action="store_true",
         help="Use adapters",
     )
@@ -70,27 +71,41 @@ def prepare_args():
     parser.add_argument(
         "--log-every",
         type=int,
-        default=100,
+        default=10,
         help="Log every n steps",
     )
     cli_args: ap.Namespace = parser.parse_args()
     data_args = DATA_CONFIG[cli_args.data_config]
     model_args = TRAINING_CONFIG[cli_args.model_config]
 
-    common_config: ap.Namespace = ap.Namespace(dict(**data_args, **model_args))
+    common_config: ap.Namespace = ap.Namespace(**dict(**data_args, **model_args))
     common_config.use_adapters = cli_args.use_adapters
     common_config.dev_size = cli_args.dev_size
     common_config.seed = cli_args.seed
     common_config.log_every = cli_args.log_every
     return common_config
 
+
+def get_n_tokens(batch):
+    
+    total = 0
+    
+    with torch.no_grad():
+        for segment in {'src', 'mt', 'ref'}:
+            attn = batch[f"{segment}_attention_mask"].cpu().detach()
+            n_tokens = torch.sum(torch.flatten(attn)).item()
+            total += n_tokens
+            
+    return total
+
+
 def main(common_config: ap.Namespace):
 
     accelerator = Accelerator(log_with="wandb", split_batches=True)
-    accelerator.init_trackers(project_name='trainable-metrics', config=dict(common_config))
+    accelerator.init_trackers(project_name='trainable-metrics', config=vars(common_config))
 
     logger.info(f"Using following arguments: {common_config}")
-    tr.set_seed(common_config.seed)
+    tr.enable_full_determinism(common_config.seed)
 
     logger.info("Loading data")
     train, dev, test = load_from_config(
@@ -101,25 +116,19 @@ def main(common_config: ap.Namespace):
     )
 
     logger.info("Loading tokenizer")
-    tokenizer = tr.XLMRobertaTokenizerFast.from_pretrained(common_config.encoder_model_name, use_fast=True)
+    tokenizer = tr.XLMRobertaTokenizer.from_pretrained(common_config.encoder_model_name)
 
     logger.info("Preparing preprocessing function")
     preprocessing_fn = make_preprocessing_fn(tokenizer, max_length=512)
 
     logger.info("Preprocessing data")
     columns_to_remove = train.column_names
-    train = train.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=4)
-    dev = dev.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=4)
-    test = test.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=4)
+    train = train.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=12)
+    dev = dev.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=6)
+    test = test.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=6)
 
     logger.info("Preparing data loaders")
-    data_collator = tr.DataCollatorWithPadding(
-        tokenizer=tokenizer,
-        padding=True, 
-        pad_to_multiple_of=8, 
-        max_length=512, 
-        return_tensors="pt"
-    )
+    data_collator = make_collate_fn(tokenizer, max_length=512)
     train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator)
     dev_loader = DataLoader(dev, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator)
     test_loader = DataLoader(test, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator)
@@ -166,6 +175,10 @@ def main(common_config: ap.Namespace):
 
     dev_kendall_tau = []
     dev_loss = []
+    
+    model_forward_time = []
+    model_backward_time = []
+    model_n_tokens = []
 
     patience_counter: int = 0
 
@@ -174,32 +187,56 @@ def main(common_config: ap.Namespace):
         model.train()
         if common_config.nr_frozen_epochs > 0:
             logger.info(f"Freezing encoder for {common_config.nr_frozen_epochs} epochs")
+            accelerate.wait_for_everyone()
+            model = accelerator.unwrap_model(model)
             model.encoder.freeze()
+            model = accelerator.prepare(model)
+            accelerate.wait_for_everyone()
             
         for i, batch in enumerate(tqdm(train_loader, disable=not accelerator.is_main_process)):
             optimizer.zero_grad()
+            
+            model_n_tokens.append(get_n_tokens(batch))
+            
             labels = batch.pop("labels")
+            t_0 = time.perf_counter()
             preds = model(**batch).squeeze()
             loss = F.mse_loss(preds, labels)
+            t_1 = time.perf_counter()
             accelerator.backward(loss)
+            t_2 = time.perf_counter()
             optimizer.step()
             loss_item = loss.item()
             
+            model_forward_time.append(t_1 - t_0)
+            model_backward_time.append(t_2 - t_1)
+            
             labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
             train_kendall_tau = kendalltau(
-                labels_for_metrics.cpu(),
-                preds_for_metrics.cpu()
+                labels_for_metrics.cpu().detach(),
+                preds_for_metrics.cpu().detach()
             ).statistic
 
             if i % common_config.log_every == 0:
+                
+                full_pass_speed = (np.array(model_forward_time[-common_config.log_every:]) + np.array(model_backward_time[-common_config.log_every:]))
+                full_pass_speed = np.array(model_n_tokens[-common_config.log_every:]) / full_pass_speed
+                full_pass_speed = np.mean(full_pass_speed)
+                
                 accelerator.log({
                     "train_loss": loss_item,
                     "train_kendall_tau": train_kendall_tau,
+                    "tokens_per_second": full_pass_speed,
+                    'n_tokens': model_n_tokens[-1]
                 })
 
             if i / len(train_loader) > common_config.nr_frozen_epochs:
                 logger.info(f"Unfreezing encoder")
+                accelerate.wait_for_everyone()
+                model = accelerator.unwrap_model(model)
                 model.encoder.unfreeze()
+                model = accelerator.prepare(model)
+                accelerate.wait_for_everyone()
 
         model.eval()
         epoch_dev_loss = []
@@ -258,3 +295,9 @@ def main(common_config: ap.Namespace):
     accelerator.wait_for_everyone()
     accelerator.end_training()
     logger.info("Training finished")
+    
+    
+
+if __name__ == "__main__":
+    args = prepare_args()
+    main(args)

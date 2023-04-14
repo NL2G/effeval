@@ -1,4 +1,3 @@
-from turtle import forward
 import numpy as np
 import torch.nn as nn
 import torch
@@ -99,9 +98,10 @@ class Comet(nn.Module):
             )
         else:
             embeddings = encoder_out['all_layers'][self.layer]
-            embeddings = average_pooling(
-                input_ids, embeddings, attention_mask, self.pad_token_id
-            )
+            
+        embeddings = average_pooling(
+            input_ids, embeddings, attention_mask, self.pad_token_id
+        )
 
         return embeddings
     
