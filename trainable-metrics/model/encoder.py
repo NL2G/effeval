@@ -1,5 +1,3 @@
-from typing import Dict, List, Tuple
-
 import torch
 import torch.nn as nn
 
@@ -15,10 +13,11 @@ class Encoder(nn.Module):
         self.use_adapters = use_adapters
         if self.use_adapters:
             aconfig = atr.AdapterConfig.load("pfeiffer")
-            self.model = atr.XLMRobertaAdapterModel.from_pretrained(model_name)
+            self.model = atr.XLMRobertaAdapterModel.from_pretrained(model_name, add_pooling_layer=False)
             self.model.add_adapter(ADAPTER_TASK_NAME, config=aconfig)
+            self.model.train_adapter(ADAPTER_TASK_NAME)
         else:
-            self.model = tr.XLMRobertaModel.from_pretrained(model_name)
+            self.model = tr.XLMRobertaModel.from_pretrained(model_name, add_pooling_layer=False)
 
         self.output_dim: int = self.model.config.hidden_size
         self.num_layers: int = self.model.config.num_hidden_layers + 1

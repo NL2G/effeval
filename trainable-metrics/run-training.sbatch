@@ -1,10 +1,14 @@
 #!/bin/bash 
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:2
-#SBATCH --time=12:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --gres=gpu:1
+#SBATCH --mem=64G
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --exclusive
 #SBATCH --job-name="COMET-Training"
+#SBATCH --output=./logs/R-%x-%j.out
 
 echo "==="
 echo "Starting training"
 echo "==="
-accelerate launch --config_file="accelerate.config.yaml" run.py
+accelerate launch run.py

@@ -15,7 +15,7 @@ DATA_CONFIG = {
             #},
             {
                 "path": "./data/2020-da.tar.gz",
-                "lps": "all",
+                "lps": ["en-de", "en-zh", "en-ru", "ru-en", "de-en", "zh-en"],
             }
         ],
         "test": {
@@ -47,7 +47,7 @@ DATA_CONFIG = {
 
 TRAINING_CONFIG = {
     "comet": {
-        "nr_frozen_epochs": 0.0,
+        "nr_frozen_epochs": 0.01,
         'keep_embeddings_freezed': True,
         "encoder_lr": 1.0e-6,
         "estimator_lr": 1.5e-5,

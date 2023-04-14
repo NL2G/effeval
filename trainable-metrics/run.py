@@ -3,7 +3,6 @@ import logging
 import torch
 import time
 import torch.nn as nn
-import wandb
 from tqdm.auto import tqdm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -71,7 +70,7 @@ def prepare_args():
     parser.add_argument(
         "--log-every",
         type=int,
-        default=10,
+        default=100,
         help="Log every n steps",
     )
     cli_args: ap.Namespace = parser.parse_args()
@@ -129,9 +128,9 @@ def main(common_config: ap.Namespace):
 
     logger.info("Preparing data loaders")
     data_collator = make_collate_fn(tokenizer, max_length=512)
-    train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator)
-    dev_loader = DataLoader(dev, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator)
-    test_loader = DataLoader(test, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator)
+    train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator, num_workers=4)
+    dev_loader = DataLoader(dev, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator, num_workers=4)
+    test_loader = DataLoader(test, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator, num_workers=4)
 
     logger.info("Preparing model")
     model = Comet(
@@ -162,7 +161,7 @@ def main(common_config: ap.Namespace):
     else:
         params = encoder_params + top_layers_parameters
 
-    optimizer = tr.AdamW(params, lr=common_config.encoder_lr)
+    optimizer = torch.optim.AdamW(params, lr=common_config.encoder_lr)
 
     accelerator.wait_for_everyone()
     logger.info("Model placement")
@@ -181,23 +180,23 @@ def main(common_config: ap.Namespace):
     model_n_tokens = []
 
     patience_counter: int = 0
+    is_frozen: bool = False
 
     for epoch in range(common_config.max_epochs):
         logger.info(f"Epoch {epoch}")
         model.train()
         if common_config.nr_frozen_epochs > 0:
             logger.info(f"Freezing encoder for {common_config.nr_frozen_epochs} epochs")
-            accelerate.wait_for_everyone()
+            accelerator.wait_for_everyone()
             model = accelerator.unwrap_model(model)
             model.encoder.freeze()
+            is_frozen = True
+            accelerator.clear()
             model = accelerator.prepare(model)
-            accelerate.wait_for_everyone()
+            accelerator.wait_for_everyone()
             
         for i, batch in enumerate(tqdm(train_loader, disable=not accelerator.is_main_process)):
             optimizer.zero_grad()
-            
-            model_n_tokens.append(get_n_tokens(batch))
-            
             labels = batch.pop("labels")
             t_0 = time.perf_counter()
             preds = model(**batch).squeeze()
@@ -206,37 +205,39 @@ def main(common_config: ap.Namespace):
             accelerator.backward(loss)
             t_2 = time.perf_counter()
             optimizer.step()
-            loss_item = loss.item()
-            
-            model_forward_time.append(t_1 - t_0)
-            model_backward_time.append(t_2 - t_1)
-            
-            labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
-            train_kendall_tau = kendalltau(
-                labels_for_metrics.cpu().detach(),
-                preds_for_metrics.cpu().detach()
-            ).statistic
 
             if i % common_config.log_every == 0:
+                n_tokens = get_n_tokens(batch)
+                model_n_tokens.append(n_tokens)
+                model_forward_time.append(t_1 - t_0)
+                model_backward_time.append(t_2 - t_1)
                 
-                full_pass_speed = (np.array(model_forward_time[-common_config.log_every:]) + np.array(model_backward_time[-common_config.log_every:]))
-                full_pass_speed = np.array(model_n_tokens[-common_config.log_every:]) / full_pass_speed
-                full_pass_speed = np.mean(full_pass_speed)
+                full_pass_speed = n_tokens / (t_2 - t_0)
                 
+                labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
+                train_kendall_tau = kendalltau(
+                    labels_for_metrics.cpu().detach(),
+                    preds_for_metrics.cpu().detach()
+                ).statistic
+
+                loss_item = loss.item()
                 accelerator.log({
                     "train_loss": loss_item,
                     "train_kendall_tau": train_kendall_tau,
                     "tokens_per_second": full_pass_speed,
-                    'n_tokens': model_n_tokens[-1]
+                    'n_tokens': n_tokens,
                 })
 
-            if i / len(train_loader) > common_config.nr_frozen_epochs:
+            if is_frozen and (i / len(train_loader) > common_config.nr_frozen_epochs):
                 logger.info(f"Unfreezing encoder")
-                accelerate.wait_for_everyone()
+                accelerator.wait_for_everyone()
                 model = accelerator.unwrap_model(model)
                 model.encoder.unfreeze()
+                model.encoder.freeze_embeddings()
+                is_frozen = False
+                accelerator.clear()
                 model = accelerator.prepare(model)
-                accelerate.wait_for_everyone()
+                accelerator.wait_for_everyone()
 
         model.eval()
         epoch_dev_loss = []
@@ -293,9 +294,33 @@ def main(common_config: ap.Namespace):
         accelerator.log({"test_kendall_tau": test_kendall_tau})
 
     accelerator.wait_for_everyone()
+
+    mean_forward_time = np.mean(model_forward_time)
+    mean_backward_time = np.mean(model_backward_time)
+    std_forward_time = np.std(model_forward_time)
+    std_backward_time = np.std(model_backward_time)
+
+    full_pass_time = np.array(model_forward_time) + np.array(model_backward_time)
+    full_pass_speed = np.array(model_n_tokens) / full_pass_time
+    mean_full_pass_speed = np.mean(full_pass_speed)
+    std_full_pass_speed = np.std(full_pass_speed)
+
+    logger.info(f"Mean forward time: {mean_forward_time:.4f} | Std forward time: {std_forward_time:.4f}")
+    logger.info(f"Mean backward time: {mean_backward_time:.4f} | Std backward time: {std_backward_time:.4f}")
+    logger.info(f"Mean full pass speed: {mean_full_pass_speed:.4f} | Std full pass speed: {std_full_pass_speed:.4f}")
+
+    accelerator.log({
+        "mean_forward_time": mean_forward_time,
+        "mean_backward_time": mean_backward_time,
+        "std_forward_time": std_forward_time,
+        "std_backward_time": std_backward_time,
+        "mean_full_pass_speed": mean_full_pass_speed,
+        "std_full_pass_speed": std_full_pass_speed,
+    })
+
     accelerator.end_training()
     logger.info("Training finished")
-    
+
     
 
 if __name__ == "__main__":
