@@ -15,13 +15,13 @@ class Encoder(nn.Module):
         self.use_adapters = use_adapters
         if self.use_adapters:
             aconfig = atr.AdapterConfig.load("pfeiffer")
-            self.model = atr.AutoAdapterModel.from_pretrained(model_name)
+            self.model = atr.XLMRobertaAdapterModel.from_pretrained(model_name)
             self.model.add_adapter(ADAPTER_TASK_NAME, config=aconfig)
         else:
-            self.model = tr.AutoModel.from_pretrained(model_name)
+            self.model = tr.XLMRobertaModel.from_pretrained(model_name)
 
         self.output_dim: int = self.model.config.hidden_size
-        self.num_layers: int = self.model.config.num_hidden_layers
+        self.num_layers: int = self.model.config.num_hidden_layers + 1
         self.max_positions: int = self.model.config.max_position_embeddings
         self.size_sepatator: int = 2 # we only use xlm-roberta models
 
