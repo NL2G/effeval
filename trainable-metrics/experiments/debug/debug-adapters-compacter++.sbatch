@@ -6,16 +6,16 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=24:00:00
 #SBATCH --exclusive
-#SBATCH --job-name="debug-COMET-Training-adapters-unipelt"
+#SBATCH --job-name="debug-COMET-Training-adapters-compacte++"
 #SBATCH --output=./logs/R-%x-%j.out
 
 echo "==="
 echo "Starting training"
 echo "==="
-WANDB_NAME="comet-debug-adapters-unipelt" \
+WANDB_NAME="comet-debug-adapters-compacter++" \
     accelerate launch run.py \
     --data-config="debug" \
     --model-config="debug" \
     --no-tqdm \
     --use-adapters \
-    --adapter-config="unipelt"
+    --adapter-config="compacter++"

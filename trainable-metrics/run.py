@@ -79,7 +79,7 @@ def prepare_args():
     parser.add_argument(
         "--adapter-config",
         type=str,
-        default="pfeiffer",
+        default="no-adapter",
         help="Adapter configuration to use",
     )
     cli_args: ap.Namespace = parser.parse_args()
@@ -206,6 +206,8 @@ def main(common_config: ap.Namespace):
         accelerator.clear()
         model = accelerator.prepare(model)
         accelerator.wait_for_everyone()
+
+    logger.info(f"===> Total number of steps per epoch: {len(train_loader)}")
 
     for epoch in range(common_config.max_epochs):
         logger.info(f"Epoch {epoch}")
