@@ -4,11 +4,16 @@
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
+#SBATCH --time=24:00:00
 #SBATCH --exclusive
-#SBATCH --job-name="COMET-Training"
+#SBATCH --job-name="debug-COMET-Training-no-adapters"
 #SBATCH --output=./logs/R-%x-%j.out
 
 echo "==="
 echo "Starting training"
 echo "==="
-accelerate launch run.py
+WANDB_NAME="comet-debug-no-adapters" \
+    accelerate launch run.py \
+    --data-config="debug" \
+    --model-config="debug" \
+    --no-tqdm

@@ -8,16 +8,16 @@ ADAPTER_TASK_NAME: str = 'encoder-adapter'
 
 class Encoder(nn.Module):
 
-    def __init__(self, model_name: str, use_adapters: bool = False) -> None:
+    def __init__(self, model_name: str, use_adapters: bool = False, adapter_config: str = None) -> None:
         super().__init__()
         self.use_adapters = use_adapters
         if self.use_adapters:
-            aconfig = atr.AdapterConfig.load("pfeiffer")
-            self.model = atr.XLMRobertaAdapterModel.from_pretrained(model_name, add_pooling_layer=False)
+            aconfig = atr.AdapterConfig.load(adapter_config)
+            self.model = tr.AutoModel.from_pretrained(model_name, add_pooling_layer=False)
             self.model.add_adapter(ADAPTER_TASK_NAME, config=aconfig)
             self.model.train_adapter(ADAPTER_TASK_NAME)
         else:
-            self.model = tr.XLMRobertaModel.from_pretrained(model_name, add_pooling_layer=False)
+            self.model = tr.AutoModel.from_pretrained(model_name, add_pooling_layer=False)
 
         self.output_dim: int = self.model.config.hidden_size
         self.num_layers: int = self.model.config.num_hidden_layers + 1

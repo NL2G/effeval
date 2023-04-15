@@ -10,9 +10,9 @@ def load_data(path: str, lps: list[str] | str = "all", domain: str = "news") -> 
     if domain != "all":
         dataset = dataset[dataset["domain"] == domain]
 
-    scaler = MinMaxScaler()
+    #scaler = MinMaxScaler()
     dataset = dataset[["src", "mt", "ref", "score"]]
-    dataset["score"] = scaler.fit_transform(dataset[["score"]])
+    #dataset["score"] = scaler.fit_transform(dataset[["score"]])
     return dataset
 
 def load_from_config(
@@ -34,39 +34,42 @@ def load_from_config(
 
     return train_dev["train"], train_dev["test"], test_data
 
-def make_preprocessing_fn(tokenizer, max_length: int = 512):
+def make_preprocessing_fn(tokenizer, max_length: int = 512, return_length: bool = False):
     def preprocessing_function(examples):
         src_inputs = tokenizer(
             [str(x) for x in examples["src"]],
             max_length=max_length,
-            padding="longest",
+            padding=False,
             truncation=True,
-            return_tensors="pt",
+            return_length=return_length
         )
         mt_inputs = tokenizer(
             [str(x) for x in examples["mt"]],
             max_length=max_length,
-            padding="longest",
+            padding=False,
             truncation=True,
-            return_tensors="pt",
+            return_length=return_length
         )
         ref_inputs = tokenizer(
             [str(x) for x in examples["ref"]],
             max_length=max_length,
-            padding="longest",
+            padding=False,
             truncation=True,
-            return_tensors="pt",
+            return_length=return_length
         )
         result = {
             "src_input_ids": src_inputs.input_ids,
-            "src_attention_mask": src_inputs.attention_mask,
             "mt_input_ids": mt_inputs.input_ids,
-            "mt_attention_mask": mt_inputs.attention_mask,
             "ref_input_ids": ref_inputs.input_ids,
-            "ref_attention_mask": ref_inputs.attention_mask,
         }
         if "score" in examples:
             result["labels"] = examples["score"]
+
+        if return_length:
+            result["src_length"] = src_inputs.length
+            result["mt_length"] = mt_inputs.length
+            result["ref_length"] = ref_inputs.length
+            
         return result
     return preprocessing_function
 

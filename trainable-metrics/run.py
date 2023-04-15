@@ -2,15 +2,12 @@ from rich.logging import RichHandler
 import logging
 import torch
 import time
-import torch.nn as nn
 from tqdm.auto import tqdm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from datasets import Dataset
 import transformers as tr
 import numpy as np
 from scipy.stats import kendalltau
-import pandas as pd
 from accelerate import Accelerator
 
 from data_utils import make_preprocessing_fn, load_from_config, make_collate_fn
@@ -73,6 +70,18 @@ def prepare_args():
         default=100,
         help="Log every n steps",
     )
+    parser.add_argument(
+        "--no-tqdm",
+        default=False,
+        action="store_true",
+        help="Disable tqdm",
+    )
+    parser.add_argument(
+        "--adapter-config",
+        type=str,
+        default="pfeiffer",
+        help="Adapter configuration to use",
+    )
     cli_args: ap.Namespace = parser.parse_args()
     data_args = DATA_CONFIG[cli_args.data_config]
     model_args = TRAINING_CONFIG[cli_args.model_config]
@@ -82,6 +91,8 @@ def prepare_args():
     common_config.dev_size = cli_args.dev_size
     common_config.seed = cli_args.seed
     common_config.log_every = cli_args.log_every
+    common_config.no_tqdm = cli_args.no_tqdm
+    common_config.adapter_config = cli_args.adapter_config
     return common_config
 
 
@@ -122,20 +133,21 @@ def main(common_config: ap.Namespace):
 
     logger.info("Preprocessing data")
     columns_to_remove = train.column_names
-    train = train.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=12)
-    dev = dev.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=6)
-    test = test.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=6)
+    train = train.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=16)
+    dev = dev.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8)
+    test = test.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8)
 
     logger.info("Preparing data loaders")
     data_collator = make_collate_fn(tokenizer, max_length=512)
-    train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator, num_workers=4)
-    dev_loader = DataLoader(dev, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator, num_workers=4)
-    test_loader = DataLoader(test, batch_size=common_config.batch_size, shuffle=False, collate_fn=data_collator, num_workers=4)
+    train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator, num_workers=2)
+    dev_loader = DataLoader(dev, batch_size=1, shuffle=False, collate_fn=data_collator, num_workers=2)
+    test_loader = DataLoader(test, batch_size=16, shuffle=False, collate_fn=data_collator, num_workers=2)
 
     logger.info("Preparing model")
     model = Comet(
         encoder_model_name=common_config.encoder_model_name,
         use_adapters=common_config.use_adapters,
+        adapter_config=common_config.adapter_config,
         layer=common_config.layer,
         keep_embeddings_freezed=common_config.keep_embeddings_freezed,
         hidden_sizes=common_config.hidden_sizes,
@@ -178,24 +190,33 @@ def main(common_config: ap.Namespace):
     model_forward_time = []
     model_backward_time = []
     model_n_tokens = []
+    model_memory_usage = []
 
     patience_counter: int = 0
     is_frozen: bool = False
 
+    tqdm_disable: bool = not accelerator.is_main_process or common_config.no_tqdm
+
+    if common_config.nr_frozen_epochs > 0:
+        logger.info(f"Freezing encoder for {common_config.nr_frozen_epochs} epochs")
+        accelerator.wait_for_everyone()
+        model = accelerator.unwrap_model(model)
+        model.encoder.freeze()
+        is_frozen = True
+        accelerator.clear()
+        model = accelerator.prepare(model)
+        accelerator.wait_for_everyone()
+
     for epoch in range(common_config.max_epochs):
         logger.info(f"Epoch {epoch}")
         model.train()
-        if common_config.nr_frozen_epochs > 0:
-            logger.info(f"Freezing encoder for {common_config.nr_frozen_epochs} epochs")
-            accelerator.wait_for_everyone()
-            model = accelerator.unwrap_model(model)
-            model.encoder.freeze()
-            is_frozen = True
-            accelerator.clear()
-            model = accelerator.prepare(model)
-            accelerator.wait_for_everyone()
-            
-        for i, batch in enumerate(tqdm(train_loader, disable=not accelerator.is_main_process)):
+        
+        logger.info(f"Training Epoch #{epoch}")
+        for i, batch in enumerate(tqdm(train_loader, disable=tqdm_disable)):
+
+            if i % common_config.log_every == 0:
+                torch.cuda.reset_peak_memory_stats()
+
             optimizer.zero_grad()
             labels = batch.pop("labels")
             t_0 = time.perf_counter()
@@ -207,12 +228,19 @@ def main(common_config: ap.Namespace):
             optimizer.step()
 
             if i % common_config.log_every == 0:
+
+                peak_memory_usage = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
+
+                peak_memory_usage = peak_memory_usage / 1024 / 1024
+                model_memory_usage.append(peak_memory_usage)
+
                 n_tokens = get_n_tokens(batch)
                 model_n_tokens.append(n_tokens)
                 model_forward_time.append(t_1 - t_0)
                 model_backward_time.append(t_2 - t_1)
                 
-                full_pass_speed = n_tokens / (t_2 - t_0)
+                backward_per_tokens = n_tokens / (t_2 - t_1)
+                forward_per_tokens = n_tokens / (t_1 - t_0)
                 
                 labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
                 train_kendall_tau = kendalltau(
@@ -224,9 +252,13 @@ def main(common_config: ap.Namespace):
                 accelerator.log({
                     "train_loss": loss_item,
                     "train_kendall_tau": train_kendall_tau,
-                    "tokens_per_second": full_pass_speed,
                     'n_tokens': n_tokens,
+                    'gpu_mem_usage_mb': peak_memory_usage,
+                    'forward_speed_tokens_per_second': forward_per_tokens,
+                    'backward_speed_tokens_per_second': backward_per_tokens,
                 })
+                if common_config.no_tqdm:
+                    logger.info(f"Step: {i:^5} => Train loss: {loss_item:^5} | Train Kendall Tau: {train_kendall_tau:^5} | GPU mem usage: {peak_memory_usage:^5}MB | Forward speed: {forward_per_tokens:^5} tok/s | Backward speed: {backward_per_tokens:^5} tok/s")
 
             if is_frozen and (i / len(train_loader) > common_config.nr_frozen_epochs):
                 logger.info(f"Unfreezing encoder")
@@ -241,27 +273,27 @@ def main(common_config: ap.Namespace):
 
         model.eval()
         epoch_dev_loss = []
-        epoch_dev_kendall_tau = []
-        for i, batch in enumerate(tqdm(dev_loader, disable=not accelerator.is_main_process)):
+        epoch_preds = []
+        epoch_labels = []
+        logger.info(f"Evaluating Epoch #{epoch}")
+        for i, batch in enumerate(tqdm(dev_loader, disable=tqdm_disable)):
             with torch.no_grad():
                 labels = batch.pop("labels")
                 preds = model(**batch).squeeze()
                 loss = F.mse_loss(preds, labels)
                 loss_item = loss.item()
                 labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
-                epoch_dev_kendall_tau.append(kendalltau(
-                    labels_for_metrics.cpu(),
-                    preds_for_metrics.cpu()
-                ).statistic)
+                epoch_preds.append(preds_for_metrics.item())
+                epoch_labels.append(labels_for_metrics.item())
                 epoch_dev_loss.append(loss_item)
 
-        dev_kendall_tau_value = np.mean(epoch_dev_kendall_tau)
+        dev_kendall_tau_value = kendalltau(epoch_labels, epoch_preds).statistic
         dev_loss_value = np.mean(epoch_dev_loss)
         accelerator.log({
-            "dev_loss": dev_loss,
-            "dev_kendall_tau": dev_kendall_tau,
+            "dev_loss": dev_loss_value,
+            "dev_kendall_tau": dev_kendall_tau_value,
         })
-        logger.info(f"Dev loss: {dev_loss:.4f} | Dev Kendall Tau: {dev_kendall_tau:.4f}")
+        logger.info(f"Dev loss: {dev_loss_value:.4f} | Dev Kendall Tau: {dev_kendall_tau_value:.4f}")
 
         dev_kendall_tau.append(dev_kendall_tau_value)
         dev_loss.append(dev_loss_value)
@@ -270,6 +302,7 @@ def main(common_config: ap.Namespace):
             patience_counter += 1
             logger.info(f"Patience counter: {patience_counter}")
         else:
+            logger.info(f"Kenall Tau improved, resetting patience counter")
             patience_counter = 0
 
         if patience_counter >= common_config.patience:
@@ -281,13 +314,13 @@ def main(common_config: ap.Namespace):
         model.eval()
         test_preds = []
         test_labels = []
-        for i, batch in enumerate(tqdm(test_loader)):
+        for i, batch in enumerate(tqdm(test_loader, disable=tqdm_disable)):
             with torch.no_grad():
                 batch = {k: v.to(accelerator.device) for k, v in batch.items()}
                 labels = batch.pop("labels")
                 preds = model(**batch).squeeze()
-                test_preds += preds.cpu().numpy().tolist()
-                test_labels += labels.cpu().numpy().tolist()
+                test_preds += preds.cpu().detach().tolist()
+                test_labels += labels.cpu().detach().tolist()
 
         test_kendall_tau = kendalltau(test_labels, test_preds).statistic
         logger.info(f"Test Kendall Tau: {test_kendall_tau:.4f}")
@@ -299,23 +332,44 @@ def main(common_config: ap.Namespace):
     mean_backward_time = np.mean(model_backward_time)
     std_forward_time = np.std(model_forward_time)
     std_backward_time = np.std(model_backward_time)
+    median_forward_time = np.median(model_forward_time)
+    median_backward_time = np.median(model_backward_time)
 
-    full_pass_time = np.array(model_forward_time) + np.array(model_backward_time)
-    full_pass_speed = np.array(model_n_tokens) / full_pass_time
-    mean_full_pass_speed = np.mean(full_pass_speed)
-    std_full_pass_speed = np.std(full_pass_speed)
+    forward_speed = np.array(model_n_tokens) / np.array(model_forward_time)
+    backward_speed = np.array(model_n_tokens) / np.array(model_backward_time)
+    mean_forward_speed = np.mean(forward_speed)
+    mean_backward_speed = np.mean(backward_speed)
+    std_forward_speed = np.std(forward_speed)
+    std_backward_speed = np.std(backward_speed)
+    median_forward_speed = np.median(forward_speed)
+    median_backward_speed = np.median(backward_speed)
 
-    logger.info(f"Mean forward time: {mean_forward_time:.4f} | Std forward time: {std_forward_time:.4f}")
-    logger.info(f"Mean backward time: {mean_backward_time:.4f} | Std backward time: {std_backward_time:.4f}")
-    logger.info(f"Mean full pass speed: {mean_full_pass_speed:.4f} | Std full pass speed: {std_full_pass_speed:.4f}")
+    mean_memory_usage = np.mean(model_memory_usage)
+    std_memory_usage = np.std(model_memory_usage)
+    median_memory_usage = np.median(model_memory_usage)
+
+    logger.info(f"Forward time:   {mean_forward_time:.4f} +- {std_forward_time:.4f} (median: {median_forward_time:.4f})")
+    logger.info(f"Backward time:  {mean_backward_time:.4f} +- {std_backward_time:.4f} (median: {median_backward_time:.4f})")
+    logger.info(f"Forward speed:  {mean_forward_speed:.4f} +- {std_forward_speed:.4f}  (median: {median_forward_speed:.4f})")
+    logger.info(f"Backward speed: {mean_backward_speed:.4f} +- {std_backward_speed:.4f} (median: {median_backward_speed:.4f})")
+    logger.info(f"Memory usage:   {mean_memory_usage:.4f} +- {std_memory_usage:.4f} (median: {median_memory_usage:.4f})")
 
     accelerator.log({
         "mean_forward_time": mean_forward_time,
         "mean_backward_time": mean_backward_time,
         "std_forward_time": std_forward_time,
         "std_backward_time": std_backward_time,
-        "mean_full_pass_speed": mean_full_pass_speed,
-        "std_full_pass_speed": std_full_pass_speed,
+        "mean_forward_speed": mean_forward_speed,
+        "mean_backward_speed": mean_backward_speed,
+        "std_forward_speed": std_forward_speed,
+        "std_backward_speed": std_backward_speed,
+        "mean_memory_usage": mean_memory_usage,
+        "std_memory_usage": std_memory_usage,
+        "median_forward_time": median_forward_time,
+        "median_backward_time": median_backward_time,
+        "median_forward_speed": median_forward_speed,
+        "median_backward_speed": median_backward_speed,
+        "median_memory_usage": median_memory_usage,
     })
 
     accelerator.end_training()

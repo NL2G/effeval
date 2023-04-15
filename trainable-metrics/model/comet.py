@@ -58,6 +58,7 @@ class Comet(nn.Module):
             self,
             encoder_model_name: str, 
             use_adapters: bool = False,
+            adapter_config: str = "pfeiffer",
             layer: int | str = "mix",
             keep_embeddings_freezed: bool = True,
             hidden_sizes: list[int] = [3072, 1024],
@@ -68,7 +69,7 @@ class Comet(nn.Module):
         ) -> None:
 
         super().__init__()
-        self.encoder = Encoder(encoder_model_name, use_adapters=use_adapters)
+        self.encoder = Encoder(encoder_model_name, use_adapters=use_adapters, adapter_config=adapter_config)
         self.estimator = FeedForward(
             in_dim=self.encoder.output_dim * 6,
             hidden_sizes=hidden_sizes,

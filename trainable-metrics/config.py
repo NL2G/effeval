@@ -15,7 +15,7 @@ DATA_CONFIG = {
             #},
             {
                 "path": "./data/2020-da.tar.gz",
-                "lps": ["en-de", "en-zh", "en-ru", "ru-en", "de-en", "zh-en"],
+                "lps": "all",
             }
         ],
         "test": {
@@ -42,12 +42,40 @@ DATA_CONFIG = {
                 "de-en",
             ],
         }
-    }
+    },
+    "debug": {
+        "train": [
+            #{
+            #    "path": "./data/2017-da.tar.gz",
+            #    "lps": "all",
+            #},
+            #{
+            #    "path": "./data/2018-da.tar.gz",
+            #    "lps": "all",
+            #},
+            #{
+            #    "path": "./data/2019-da.tar.gz",
+            #    "lps": "all",
+            #},
+            {
+                "path": "./data/2020-da.tar.gz",
+                "lps": ['en-ru'],
+            }
+        ],
+        "test": {
+            "path": "./data/2022-da.tar.gz",
+            "lps": [
+                "zh-en",
+                "ru-en",
+                "de-en",
+            ],
+        }
+    },
 }
 
 TRAINING_CONFIG = {
     "comet": {
-        "nr_frozen_epochs": 0.01,
+        "nr_frozen_epochs": 0.3,
         'keep_embeddings_freezed': True,
         "encoder_lr": 1.0e-6,
         "estimator_lr": 1.5e-5,
@@ -65,5 +93,22 @@ TRAINING_CONFIG = {
     },
     "cometinho": {
         
-    }
+    },
+    "debug": {
+        "nr_frozen_epochs": 0.1,
+        'keep_embeddings_freezed': True,
+        "encoder_lr": 1.0e-6,
+        "estimator_lr": 1.5e-5,
+        "layerwise_decay": 0.95,
+        "encoder_model_name": "microsoft/Multilingual-MiniLM-L12-H384",
+        "layer": "mix",
+        "batch_size": 32,
+        "hidden_sizes": [3072, 1024],
+        "activations": "Tanh",
+        "final_activation": None,
+        "layer_transformation": "sparsemax",
+        "max_epochs": 10,
+        "patience": 2,
+        "dropout": 0.1,
+    },
 }
