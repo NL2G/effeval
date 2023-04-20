@@ -149,7 +149,7 @@ def main(common_config: ap.Namespace):
         preprocessing_fn = make_preprocessing_fn(tokenizer, max_length=512)
         
         columns_to_remove = train.column_names
-        train = train.shuffle(seed=42).select(range(10000))
+        train = train.shuffle(seed=42)
         train = train.map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12)
         dev = dev.map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12)
 
@@ -310,8 +310,12 @@ def main(common_config: ap.Namespace):
                 loss = F.mse_loss(preds, labels)
                 loss_item = loss.item()
                 labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
-                epoch_preds.append(preds_for_metrics.item())
-                epoch_labels.append(labels_for_metrics.item())
+                if len(preds_for_metrics) > 1:
+                    epoch_preds += preds_for_metrics.cpu().numpy().tolist()
+                    epoch_labels += labels_for_metrics.cpu().numpy().tolist()
+                else:
+                    epoch_preds.append(preds_for_metrics.item())
+                    epoch_labels.append(labels_for_metrics.item())
                 epoch_dev_loss.append(loss_item)
 
         dev_kendall_tau_value = kendalltau(epoch_labels, epoch_preds).statistic

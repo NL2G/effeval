@@ -138,7 +138,7 @@ TRAINING_CONFIG = {
         "estimator_lr": 3.1e-5,
         "layerwise_decay": 0.95,
         "encoder_model_name": "microsoft/Multilingual-MiniLM-L12-H384",
-        "layer": "12",
+        "layer": 12,
         "batch_size": 8,
         "hidden_sizes": [384],
         "activations": "Tanh",
