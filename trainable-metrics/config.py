@@ -19,28 +19,56 @@ DATA_CONFIG = {
             }
         ],
         "test": {
-            "path": "./data/2022-da.tar.gz",
-            "lps": [
-                "zh-en",
-                "ru-en",
-                "de-en",
-            ],
+            'en-ru': {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "en-ru",
+                ],
+            },
+            'en-de': {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "en-de",
+                ],
+            },
+            "zh-en": {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "zh-en",
+                ],
+            },
         }
     },
     "cometinho": {
         "train": [
             {
-                "path": "",
+                "path": "./data/cometinho-0.csv.gz",
+                "lps": "all",
+            },
+            {
+                "path": "./data/cometinho-1.csv.gz",
                 "lps": "all",
             }
         ],
         "test": {
-            "path": "./data/2022-da.tar.gz",
-            "lps": [
-                "zh-en",
-                "ru-en",
-                "de-en",
-            ],
+            'en-ru': {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "en-ru",
+                ],
+            },
+            'en-de': {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "en-de",
+                ],
+            },
+            "zh-en": {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "zh-en",
+                ],
+            },
         }
     },
     "debug": {
@@ -63,12 +91,24 @@ DATA_CONFIG = {
             }
         ],
         "test": {
-            "path": "./data/2022-da.tar.gz",
-            "lps": [
-                "zh-en",
-                "ru-en",
-                "de-en",
-            ],
+            'en-ru': {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "en-ru",
+                ],
+            },
+            'en-de': {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "en-de",
+                ],
+            },
+            "zh-en": {
+                "path": "./data/wmt21-newstest.csv",
+                "lps": [
+                    "zh-en",
+                ],
+            },
         }
     },
 }
@@ -92,7 +132,21 @@ TRAINING_CONFIG = {
         "dropout": 0.1,
     },
     "cometinho": {
-        
+        "nr_frozen_epochs": 0.0,
+        'keep_embeddings_freezed': True,
+        "encoder_lr": 1.0e-5,
+        "estimator_lr": 3.1e-5,
+        "layerwise_decay": 0.95,
+        "encoder_model_name": "microsoft/Multilingual-MiniLM-L12-H384",
+        "layer": "12",
+        "batch_size": 8,
+        "hidden_sizes": [384],
+        "activations": "Tanh",
+        "final_activation": None,
+        "layer_transformation": "sparsemax",
+        "max_epochs": 4,
+        "patience": 2,
+        "dropout": 0.1,
     },
     "debug": {
         "nr_frozen_epochs": 0.1,

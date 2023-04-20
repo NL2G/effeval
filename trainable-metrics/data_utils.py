@@ -6,9 +6,11 @@ from sklearn.preprocessing import MinMaxScaler
 def load_data(path: str, lps: list[str] | str = "all", domain: str = "news") -> pd.DataFrame:
     dataset = pd.read_csv(path)
     if lps != "all":
-        dataset = dataset[dataset["lp"].isin(lps)]
+        if 'lp' in dataset.columns:
+            dataset = dataset[dataset["lp"].isin(lps)]
     if domain != "all":
-        dataset = dataset[dataset["domain"] == domain]
+        if 'domain' in dataset.columns:
+            dataset = dataset[dataset["domain"] == domain]
 
     #scaler = MinMaxScaler()
     dataset = dataset[["src", "mt", "ref", "score"]]
@@ -29,8 +31,11 @@ def load_from_config(
     train_dev = Dataset.from_pandas(train_data)
     train_dev = train_dev.train_test_split(test_size=dev_size, seed=random_seed)
 
-    test_data = load_data(**test_config)
-    test_data = Dataset.from_pandas(test_data)
+    test_data = {}
+    for key in test_config:
+        test_data[key] = load_data(**test_config[key])
+
+    test_data = {key: Dataset.from_pandas(value) for key, value in test_data.items()}
 
     return train_dev["train"], train_dev["test"], test_data
 

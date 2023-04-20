@@ -7,7 +7,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --exclusive
 #SBATCH --job-name="debug-COMET-Training-adapters-parallel"
-#SBATCH --output=./logs/R-%x-%j.out
+#SBATCH --output=./logs/debug/R-%x-%j.out
 
 echo "==="
 echo "Starting training"

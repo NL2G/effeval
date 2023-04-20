@@ -111,7 +111,13 @@ def get_n_tokens(batch):
 
 def main(common_config: ap.Namespace):
 
-    accelerator = Accelerator(log_with="wandb", split_batches=True)
+    accelerator = Accelerator(log_with="wandb")
+    if accelerator.is_main_process:
+        if accelerator.num_processes > 1:
+            logger.info(f"Scaling learning rates by {accelerator.num_processes} due to distributed training")
+            
+    common_config.encoder_lr = common_config.encoder_lr * accelerator.num_processes
+    common_config.estimator_lr = common_config.estimator_lr * accelerator.num_processes
     accelerator.init_trackers(project_name='trainable-metrics', config=vars(common_config))
 
     logger.info(f"Using following arguments: {common_config}")
@@ -135,13 +141,20 @@ def main(common_config: ap.Namespace):
     columns_to_remove = train.column_names
     train = train.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=16)
     dev = dev.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8)
-    test = test.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8)
+
+    test = {
+        key: test[key].map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8) 
+        for key in test
+    }
 
     logger.info("Preparing data loaders")
     data_collator = make_collate_fn(tokenizer, max_length=512)
     train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator, num_workers=2)
     dev_loader = DataLoader(dev, batch_size=1, shuffle=False, collate_fn=data_collator, num_workers=2)
-    test_loader = DataLoader(test, batch_size=16, shuffle=False, collate_fn=data_collator, num_workers=2)
+    test_loaders = {
+        key: DataLoader(test[key], batch_size=16, shuffle=False, collate_fn=data_collator, num_workers=2) 
+        for key in test
+    }
 
     logger.info("Preparing model")
     model = Comet(
@@ -314,19 +327,30 @@ def main(common_config: ap.Namespace):
     if accelerator.is_main_process:
         logger.info("Evaluating on test set")
         model.eval()
-        test_preds = []
-        test_labels = []
-        for i, batch in enumerate(tqdm(test_loader, disable=tqdm_disable)):
-            with torch.no_grad():
-                batch = {k: v.to(accelerator.device) for k, v in batch.items()}
-                labels = batch.pop("labels")
-                preds = model(**batch).squeeze()
-                test_preds += preds.cpu().detach().tolist()
-                test_labels += labels.cpu().detach().tolist()
 
-        test_kendall_tau = kendalltau(test_labels, test_preds).statistic
-        logger.info(f"Test Kendall Tau: {test_kendall_tau:.4f}")
-        accelerator.log({"test_kendall_tau": test_kendall_tau})
+        test_report = {}
+        
+        for key, test_loader in test_loaders.items():
+            test_preds = []
+            test_labels = []
+            for i, batch in enumerate(tqdm(test_loader, disable=tqdm_disable)):
+                with torch.no_grad():
+                    batch = {k: v.to(accelerator.device) for k, v in batch.items()}
+                    labels = batch.pop("labels")
+                    preds = model(**batch).squeeze()
+                    test_preds += preds.cpu().detach().tolist()
+                    test_labels += labels.cpu().detach().tolist()
+
+            test_kendall_tau = kendalltau(test_labels, test_preds).statistic
+            test_report[key] = test_kendall_tau
+            logger.info(f"Test Kendall Tau for {key}: {test_kendall_tau:.4f}")
+            
+        test_report = {
+            f"test_kendall_tau_{key}": value for key, value in test_report.items()
+        }
+        test_report['overall_test_kendall_tau'] = np.mean(list(test_report.values()))
+        logger.info(f"Overall test Kendall Tau: {test_report['overall_test_kendall_tau']:.4f}")
+        accelerator.log(test_report)
 
     accelerator.wait_for_everyone()
 

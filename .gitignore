@@ -273,3 +273,12 @@ TSWLatexianTemp*
 *.sta
 metrics/comet/*
 metrics/comet
+trainable-metrics/data/cometinho-0.csv.gz
+trainable-metrics/data/cometinho-1.csv.gz
+trainable-metrics/data/cometinho-train.tar
+trainable-metrics/data/10m/data-00000-of-00004.arrow
+trainable-metrics/data/10m/data-00001-of-00004.arrow
+trainable-metrics/data/10m/data-00002-of-00004.arrow
+trainable-metrics/data/10m/data-00003-of-00004.arrow
+trainable-metrics/data/10m/dataset_info.json
+trainable-metrics/data/10m/state.json
