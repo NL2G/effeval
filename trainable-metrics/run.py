@@ -13,18 +13,10 @@ from accelerate import Accelerator
 from data_utils import make_preprocessing_fn, load_from_config, make_collate_fn
 from model.comet import Comet
 from config import DATA_CONFIG, TRAINING_CONFIG
+import transformers
+import datasets
 
 import argparse as ap
-
-logging.basicConfig(
-    level="INFO",
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True)],
-)
-
-logger = logging.getLogger(__name__)
-
 
 def prepare_args():
 
@@ -112,10 +104,23 @@ def get_n_tokens(batch):
 def main(common_config: ap.Namespace):
 
     accelerator = Accelerator(log_with="wandb")
+    
+    logging.basicConfig(
+        level="INFO" if accelerator.is_main_process else "ERROR",
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(rich_tracebacks=True)],
+    )
+
+    logger = logging.getLogger(__name__)
+    
     if accelerator.is_main_process:
         if accelerator.num_processes > 1:
             logger.info(f"Scaling learning rates by {accelerator.num_processes} due to distributed training")
-            
+    else:
+        datasets.utils.logging.set_verbosity_error()
+        transformers.utils.logging.set_verbosity_error()
+
     common_config.encoder_lr = common_config.encoder_lr * accelerator.num_processes
     common_config.estimator_lr = common_config.estimator_lr * accelerator.num_processes
     accelerator.init_trackers(project_name='trainable-metrics', config=vars(common_config))
@@ -131,22 +136,28 @@ def main(common_config: ap.Namespace):
         common_config.seed
     )
 
-    logger.info("Loading tokenizer")
-    tokenizer = tr.XLMRobertaTokenizer.from_pretrained(common_config.encoder_model_name)
-
-    logger.info("Preparing preprocessing function")
-    preprocessing_fn = make_preprocessing_fn(tokenizer, max_length=512)
-
     logger.info("Preprocessing data")
-    columns_to_remove = train.column_names
-    train = train.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=16)
-    dev = dev.map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8)
+    
+    with accelerator.main_process_first():
+        
+        logger.info(f"Begginning map on process {accelerator.process_index}")
+        
+        logger.info("Loading tokenizer")
+        tokenizer = tr.XLMRobertaTokenizer.from_pretrained(common_config.encoder_model_name)
 
-    test = {
-        key: test[key].map(preprocessing_fn, batched=True, remove_columns=columns_to_remove, num_proc=8) 
-        for key in test
-    }
+        logger.info("Preparing preprocessing function")
+        preprocessing_fn = make_preprocessing_fn(tokenizer, max_length=512)
+        
+        columns_to_remove = train.column_names
+        train = train.shuffle(seed=42).select(range(10000))
+        train = train.map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12)
+        dev = dev.map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12)
 
+        test = {
+            key: test[key].map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12) 
+            for key in test
+        }
+    
     logger.info("Preparing data loaders")
     data_collator = make_collate_fn(tokenizer, max_length=512)
     train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator, num_workers=2)
@@ -188,6 +199,7 @@ def main(common_config: ap.Namespace):
 
     optimizer = torch.optim.AdamW(params, lr=common_config.encoder_lr)
 
+    logger.info(f"Waiting for everyone befor model placement...")
     accelerator.wait_for_everyone()
     logger.info("Model placement")
     model, optimizer, train_loader, dev_loader = accelerator.prepare(
