@@ -13,5 +13,5 @@ echo "Starting training"
 echo "==="
 WANDB_NAME="cometinho-no-adapters" \
     accelerate launch run.py \
-    --data-config="cometinho" \
+    --prepared-data="./data/cometinho-prepared" \
     --model-config="cometinho"

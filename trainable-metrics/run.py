@@ -1,25 +1,26 @@
-from rich.logging import RichHandler
-import logging
-import torch
-import time
-from tqdm.auto import tqdm
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-import transformers as tr
-import numpy as np
-from scipy.stats import kendalltau
-from accelerate import Accelerator
-
-from data_utils import make_preprocessing_fn, load_from_config, make_collate_fn
-from model.comet import Comet
-from config import DATA_CONFIG, TRAINING_CONFIG
-import transformers
-import datasets
-
 import argparse as ap
+import logging
+import time
+
+import datasets
+import numpy as np
+import torch
+import torch.nn.functional as F
+import transformers
+import transformers as tr
+from accelerate import Accelerator
+from rich.logging import RichHandler
+from scipy.stats import kendalltau
+from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
+
+from config import DATA_CONFIG, TRAINING_CONFIG
+from data_utils import load_from_config, make_collate_fn, make_preprocessing_fn
+from model.comet import Comet
+from datasets import DatasetDict
+
 
 def prepare_args():
-
     parser: ap.ArgumentParser = ap.ArgumentParser(
         description="Trainable metrics for MT evaluation",
         formatter_class=ap.ArgumentDefaultsHelpFormatter,
@@ -27,10 +28,10 @@ def prepare_args():
     )
 
     parser.add_argument(
-        "--data-config",
+        "--prepared-data",
         type=str,
-        default="comet",
-        help="Data configuration to use",
+        required=True,
+        help="Path to the prepared data",
     )
     parser.add_argument(
         "--model-config",
@@ -43,12 +44,6 @@ def prepare_args():
         default=False,
         action="store_true",
         help="Use adapters",
-    )
-    parser.add_argument(
-        "--dev-size",
-        type=float,
-        default=0.01,
-        help="Size of the dev set",
     )
     parser.add_argument(
         "--seed",
@@ -75,36 +70,34 @@ def prepare_args():
         help="Adapter configuration to use",
     )
     cli_args: ap.Namespace = parser.parse_args()
-    data_args = DATA_CONFIG[cli_args.data_config]
     model_args = TRAINING_CONFIG[cli_args.model_config]
 
-    common_config: ap.Namespace = ap.Namespace(**dict(**data_args, **model_args))
+    common_config: ap.Namespace = ap.Namespace(**model_args)
     common_config.use_adapters = cli_args.use_adapters
     common_config.dev_size = cli_args.dev_size
     common_config.seed = cli_args.seed
     common_config.log_every = cli_args.log_every
     common_config.no_tqdm = cli_args.no_tqdm
     common_config.adapter_config = cli_args.adapter_config
+    common_config.prepared_data = cli_args.prepared_data
     return common_config
 
 
 def get_n_tokens(batch):
-    
     total = 0
-    
+
     with torch.no_grad():
-        for segment in {'src', 'mt', 'ref'}:
+        for segment in {"src", "mt", "ref"}:
             attn = batch[f"{segment}_attention_mask"].cpu().detach()
             n_tokens = torch.sum(torch.flatten(attn)).item()
             total += n_tokens
-            
+
     return total
 
 
 def main(common_config: ap.Namespace):
-
     accelerator = Accelerator(log_with="wandb")
-    
+
     logging.basicConfig(
         level="INFO" if accelerator.is_main_process else "ERROR",
         format="%(message)s",
@@ -113,58 +106,58 @@ def main(common_config: ap.Namespace):
     )
 
     logger = logging.getLogger(__name__)
-    
+
     if accelerator.is_main_process:
         if accelerator.num_processes > 1:
-            logger.info(f"Scaling learning rates by {accelerator.num_processes} due to distributed training")
+            logger.info(
+                f"Scaling learning rates by {accelerator.num_processes} due to distributed training"
+            )
     else:
         datasets.utils.logging.set_verbosity_error()
         transformers.utils.logging.set_verbosity_error()
 
     common_config.encoder_lr = common_config.encoder_lr * accelerator.num_processes
     common_config.estimator_lr = common_config.estimator_lr * accelerator.num_processes
-    accelerator.init_trackers(project_name='trainable-metrics', config=vars(common_config))
+    accelerator.init_trackers(
+        project_name="trainable-metrics", config=vars(common_config)
+    )
 
     logger.info(f"Using following arguments: {common_config}")
     tr.enable_full_determinism(common_config.seed)
 
-    logger.info("Loading data")
-    train, dev, test = load_from_config(
-        common_config.train, 
-        common_config.test, 
-        common_config.dev_size,
-        common_config.seed
+    logger.info("Loading tokenizer")
+    tokenizer = tr.XLMRobertaTokenizer.from_pretrained(
+        common_config.encoder_model_name
     )
-
-    logger.info("Preprocessing data")
     
-    with accelerator.main_process_first():
-        
-        logger.info(f"Begginning map on process {accelerator.process_index}")
-        
-        logger.info("Loading tokenizer")
-        tokenizer = tr.XLMRobertaTokenizer.from_pretrained(common_config.encoder_model_name)
+    logger.info("Loading data")
+    data_dict = DatasetDict.load_from_disk(common_config.prepared_data)
 
-        logger.info("Preparing preprocessing function")
-        preprocessing_fn = make_preprocessing_fn(tokenizer, max_length=512)
-        
-        columns_to_remove = train.column_names
-        train = train.shuffle(seed=42)
-        train = train.map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12)
-        dev = dev.map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12)
-
-        test = {
-            key: test[key].map(preprocessing_fn, batched=True, disable_nullable=True, remove_columns=columns_to_remove, num_proc=12) 
-            for key in test
-        }
-    
     logger.info("Preparing data loaders")
     data_collator = make_collate_fn(tokenizer, max_length=512)
-    train_loader = DataLoader(train, batch_size=common_config.batch_size, shuffle=True, collate_fn=data_collator, num_workers=2)
-    dev_loader = DataLoader(dev, batch_size=1, shuffle=False, collate_fn=data_collator, num_workers=2)
+    train_loader = DataLoader(
+        data_dict["train"],
+        batch_size=common_config.batch_size,
+        shuffle=True,
+        collate_fn=data_collator,
+        num_workers=2,
+    )
+    dev_loader = DataLoader(
+        data_dict["dev"], 
+        batch_size=1, 
+        shuffle=False, 
+        collate_fn=data_collator, 
+        num_workers=2
+    )
     test_loaders = {
-        key: DataLoader(test[key], batch_size=16, shuffle=False, collate_fn=data_collator, num_workers=2) 
-        for key in test
+        key.replace("test_", ""): DataLoader(
+            data_dict[key],
+            batch_size=16,
+            shuffle=False,
+            collate_fn=data_collator,
+            num_workers=2,
+        )
+        for key in data_dict if key.startswith("test")
     }
 
     logger.info("Preparing model")
@@ -182,7 +175,9 @@ def main(common_config: ap.Namespace):
     )
 
     logger.info("Preparing optimizer")
-    encoder_params = model.encoder.layerwise_lr(common_config.encoder_lr, common_config.layerwise_decay)
+    encoder_params = model.encoder.layerwise_lr(
+        common_config.encoder_lr, common_config.layerwise_decay
+    )
     top_layers_parameters = [
         {"params": model.estimator.parameters(), "lr": common_config.estimator_lr},
     ]
@@ -211,7 +206,7 @@ def main(common_config: ap.Namespace):
 
     dev_kendall_tau = []
     dev_loss = []
-    
+
     model_forward_time = []
     model_backward_time = []
     model_n_tokens = []
@@ -237,10 +232,9 @@ def main(common_config: ap.Namespace):
     for epoch in range(common_config.max_epochs):
         logger.info(f"Epoch {epoch}")
         model.train()
-        
+
         logger.info(f"Training Epoch #{epoch}")
         for i, batch in enumerate(tqdm(train_loader, disable=tqdm_disable)):
-
             if i % common_config.log_every == 0:
                 torch.cuda.reset_peak_memory_stats()
 
@@ -255,8 +249,9 @@ def main(common_config: ap.Namespace):
             optimizer.step()
 
             if i % common_config.log_every == 0:
-
-                peak_memory_usage = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
+                peak_memory_usage = torch.cuda.memory_stats()[
+                    "allocated_bytes.all.peak"
+                ]
 
                 peak_memory_usage = peak_memory_usage / 1024 / 1024
                 model_memory_usage.append(peak_memory_usage)
@@ -265,27 +260,32 @@ def main(common_config: ap.Namespace):
                 model_n_tokens.append(n_tokens)
                 model_forward_time.append(t_1 - t_0)
                 model_backward_time.append(t_2 - t_1)
-                
+
                 backward_per_tokens = n_tokens / (t_2 - t_1)
                 forward_per_tokens = n_tokens / (t_1 - t_0)
-                
-                labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
+
+                labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics(
+                    (labels, preds)
+                )
                 train_kendall_tau = kendalltau(
-                    labels_for_metrics.cpu().detach(),
-                    preds_for_metrics.cpu().detach()
+                    labels_for_metrics.cpu().detach(), preds_for_metrics.cpu().detach()
                 ).statistic
 
                 loss_item = loss.item()
-                accelerator.log({
-                    "train_loss": loss_item,
-                    "train_kendall_tau": train_kendall_tau,
-                    'n_tokens': n_tokens,
-                    'gpu_mem_usage_mb': peak_memory_usage,
-                    'forward_speed_tokens_per_second': forward_per_tokens,
-                    'backward_speed_tokens_per_second': backward_per_tokens,
-                })
+                accelerator.log(
+                    {
+                        "train_loss": loss_item,
+                        "train_kendall_tau": train_kendall_tau,
+                        "n_tokens": n_tokens,
+                        "gpu_mem_usage_mb": peak_memory_usage,
+                        "forward_speed_tokens_per_second": forward_per_tokens,
+                        "backward_speed_tokens_per_second": backward_per_tokens,
+                    }
+                )
                 if common_config.no_tqdm:
-                    logger.info(f"Step: {i:^5} => Train loss: {loss_item:^5} | Train Kendall Tau: {train_kendall_tau:^5} | GPU mem usage: {peak_memory_usage:^5}MB | Forward speed: {forward_per_tokens:^5} tok/s | Backward speed: {backward_per_tokens:^5} tok/s")
+                    logger.info(
+                        f"Step: {i:^5} => Train loss: {loss_item:^5} | Train Kendall Tau: {train_kendall_tau:^5} | GPU mem usage: {peak_memory_usage:^5}MB | Forward speed: {forward_per_tokens:^5} tok/s | Backward speed: {backward_per_tokens:^5} tok/s"
+                    )
 
             if is_frozen and (i / len(train_loader) > common_config.nr_frozen_epochs):
                 logger.info(f"Unfreezing encoder")
@@ -309,6 +309,7 @@ def main(common_config: ap.Namespace):
                 preds = model(**batch).squeeze()
                 loss = F.mse_loss(preds, labels)
                 loss_item = loss.item()
+
                 labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
                 if len(preds_for_metrics) > 1:
                     epoch_preds += preds_for_metrics.cpu().numpy().tolist()
@@ -316,15 +317,20 @@ def main(common_config: ap.Namespace):
                 else:
                     epoch_preds.append(preds_for_metrics.item())
                     epoch_labels.append(labels_for_metrics.item())
+
                 epoch_dev_loss.append(loss_item)
 
         dev_kendall_tau_value = kendalltau(epoch_labels, epoch_preds).statistic
         dev_loss_value = np.mean(epoch_dev_loss)
-        accelerator.log({
-            "dev_loss": dev_loss_value,
-            "dev_kendall_tau": dev_kendall_tau_value,
-        })
-        logger.info(f"Dev loss: {dev_loss_value:.4f} | Dev Kendall Tau: {dev_kendall_tau_value:.4f}")
+        accelerator.log(
+            {
+                "dev_loss": dev_loss_value,
+                "dev_kendall_tau": dev_kendall_tau_value,
+            }
+        )
+        logger.info(
+            f"Dev loss: {dev_loss_value:.4f} | Dev Kendall Tau: {dev_kendall_tau_value:.4f}"
+        )
 
         dev_kendall_tau.append(dev_kendall_tau_value)
         dev_loss.append(dev_loss_value)
@@ -340,12 +346,13 @@ def main(common_config: ap.Namespace):
             logger.info("Early stopping")
             break
 
+    accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         logger.info("Evaluating on test set")
         model.eval()
 
         test_report = {}
-        
+
         for key, test_loader in test_loaders.items():
             test_preds = []
             test_labels = []
@@ -360,12 +367,14 @@ def main(common_config: ap.Namespace):
             test_kendall_tau = kendalltau(test_labels, test_preds).statistic
             test_report[key] = test_kendall_tau
             logger.info(f"Test Kendall Tau for {key}: {test_kendall_tau:.4f}")
-            
+
         test_report = {
             f"test_kendall_tau_{key}": value for key, value in test_report.items()
         }
-        test_report['overall_test_kendall_tau'] = np.mean(list(test_report.values()))
-        logger.info(f"Overall test Kendall Tau: {test_report['overall_test_kendall_tau']:.4f}")
+        test_report["overall_test_kendall_tau"] = np.mean(list(test_report.values()))
+        logger.info(
+            f"Overall test Kendall Tau: {test_report['overall_test_kendall_tau']:.4f}"
+        )
         accelerator.log(test_report)
 
     accelerator.wait_for_everyone()
@@ -390,34 +399,45 @@ def main(common_config: ap.Namespace):
     std_memory_usage = np.std(model_memory_usage)
     median_memory_usage = np.median(model_memory_usage)
 
-    logger.info(f"Forward time:   {mean_forward_time:.4f} +- {std_forward_time:.4f} (median: {median_forward_time:.4f})")
-    logger.info(f"Backward time:  {mean_backward_time:.4f} +- {std_backward_time:.4f} (median: {median_backward_time:.4f})")
-    logger.info(f"Forward speed:  {mean_forward_speed:.4f} +- {std_forward_speed:.4f}  (median: {median_forward_speed:.4f})")
-    logger.info(f"Backward speed: {mean_backward_speed:.4f} +- {std_backward_speed:.4f} (median: {median_backward_speed:.4f})")
-    logger.info(f"Memory usage:   {mean_memory_usage:.4f} +- {std_memory_usage:.4f} (median: {median_memory_usage:.4f})")
+    logger.info(
+        f"Forward time:   {mean_forward_time:.4f} +- {std_forward_time:.4f} (median: {median_forward_time:.4f})"
+    )
+    logger.info(
+        f"Backward time:  {mean_backward_time:.4f} +- {std_backward_time:.4f} (median: {median_backward_time:.4f})"
+    )
+    logger.info(
+        f"Forward speed:  {mean_forward_speed:.4f} +- {std_forward_speed:.4f}  (median: {median_forward_speed:.4f})"
+    )
+    logger.info(
+        f"Backward speed: {mean_backward_speed:.4f} +- {std_backward_speed:.4f} (median: {median_backward_speed:.4f})"
+    )
+    logger.info(
+        f"Memory usage:   {mean_memory_usage:.4f} +- {std_memory_usage:.4f} (median: {median_memory_usage:.4f})"
+    )
 
-    accelerator.log({
-        "mean_forward_time": mean_forward_time,
-        "mean_backward_time": mean_backward_time,
-        "std_forward_time": std_forward_time,
-        "std_backward_time": std_backward_time,
-        "mean_forward_speed": mean_forward_speed,
-        "mean_backward_speed": mean_backward_speed,
-        "std_forward_speed": std_forward_speed,
-        "std_backward_speed": std_backward_speed,
-        "mean_memory_usage": mean_memory_usage,
-        "std_memory_usage": std_memory_usage,
-        "median_forward_time": median_forward_time,
-        "median_backward_time": median_backward_time,
-        "median_forward_speed": median_forward_speed,
-        "median_backward_speed": median_backward_speed,
-        "median_memory_usage": median_memory_usage,
-    })
+    accelerator.log(
+        {
+            "mean_forward_time": mean_forward_time,
+            "mean_backward_time": mean_backward_time,
+            "std_forward_time": std_forward_time,
+            "std_backward_time": std_backward_time,
+            "mean_forward_speed": mean_forward_speed,
+            "mean_backward_speed": mean_backward_speed,
+            "std_forward_speed": std_forward_speed,
+            "std_backward_speed": std_backward_speed,
+            "mean_memory_usage": mean_memory_usage,
+            "std_memory_usage": std_memory_usage,
+            "median_forward_time": median_forward_time,
+            "median_backward_time": median_backward_time,
+            "median_forward_speed": median_forward_speed,
+            "median_backward_speed": median_backward_speed,
+            "median_memory_usage": median_memory_usage,
+        }
+    )
 
     accelerator.end_training()
     logger.info("Training finished")
 
-    
 
 if __name__ == "__main__":
     args = prepare_args()
