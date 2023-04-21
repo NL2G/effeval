@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *.pyo
 wandb/
+data/cometinho-prepared/
