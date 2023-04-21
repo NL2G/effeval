@@ -74,7 +74,6 @@ def prepare_args():
 
     common_config: ap.Namespace = ap.Namespace(**model_args)
     common_config.use_adapters = cli_args.use_adapters
-    common_config.dev_size = cli_args.dev_size
     common_config.seed = cli_args.seed
     common_config.log_every = cli_args.log_every
     common_config.no_tqdm = cli_args.no_tqdm
@@ -124,7 +123,6 @@ def main(common_config: ap.Namespace):
 
     logger.info(f"Using following arguments: {common_config}")
     tr.enable_full_determinism(common_config.seed)
-
 
     logger.info("Loading tokenizer")
     tokenizer = tr.XLMRobertaTokenizer.from_pretrained(
@@ -264,6 +262,7 @@ def main(common_config: ap.Namespace):
 
                 backward_per_tokens = n_tokens / (t_2 - t_1)
                 forward_per_tokens = n_tokens / (t_1 - t_0)
+                
 
                 labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics(
                     (labels, preds)
@@ -310,11 +309,15 @@ def main(common_config: ap.Namespace):
                 preds = model(**batch).squeeze()
                 loss = F.mse_loss(preds, labels)
                 loss_item = loss.item()
-                labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics(
-                    (labels, preds)
-                )
-                epoch_preds.append(preds_for_metrics.item())
-                epoch_labels.append(labels_for_metrics.item())
+
+                labels_for_metrics, preds_for_metrics = accelerator.gather_for_metrics((labels, preds))
+                if len(preds_for_metrics) > 1:
+                    epoch_preds += preds_for_metrics.cpu().numpy().tolist()
+                    epoch_labels += labels_for_metrics.cpu().numpy().tolist()
+                else:
+                    epoch_preds.append(preds_for_metrics.item())
+                    epoch_labels.append(labels_for_metrics.item())
+
                 epoch_dev_loss.append(loss_item)
 
         dev_kendall_tau_value = kendalltau(epoch_labels, epoch_preds).statistic
@@ -395,6 +398,11 @@ def main(common_config: ap.Namespace):
     mean_memory_usage = np.mean(model_memory_usage)
     std_memory_usage = np.std(model_memory_usage)
     median_memory_usage = np.median(model_memory_usage)
+    
+    memory_per_token = np.array(model_n_tokens) / np.array(model_memory_usage)
+    mean_memory_per_token = np.mean(memory_per_token)
+    std_memory_per_token = np.std(memory_per_token)
+    median_memory_per_token = np.median(memory_per_token)
 
     logger.info(
         f"Forward time:   {mean_forward_time:.4f} +- {std_forward_time:.4f} (median: {median_forward_time:.4f})"
@@ -411,6 +419,9 @@ def main(common_config: ap.Namespace):
     logger.info(
         f"Memory usage:   {mean_memory_usage:.4f} +- {std_memory_usage:.4f} (median: {median_memory_usage:.4f})"
     )
+    logger.info(
+        f"Memory usage (per token): {mean_memory_per_token:.4f} +- {std_memory_per_token:.4f} (median: {median_memory_per_token:.4f})"
+    )
 
     accelerator.log(
         {
@@ -424,11 +435,14 @@ def main(common_config: ap.Namespace):
             "std_backward_speed": std_backward_speed,
             "mean_memory_usage": mean_memory_usage,
             "std_memory_usage": std_memory_usage,
+            "mean_memory_per_token": mean_memory_per_token,
+            "std_memory_per_token": std_memory_per_token,
             "median_forward_time": median_forward_time,
             "median_backward_time": median_backward_time,
             "median_forward_speed": median_forward_speed,
             "median_backward_speed": median_backward_speed,
             "median_memory_usage": median_memory_usage,
+            "median_memory_per_token": median_memory_per_token
         }
     )
 
