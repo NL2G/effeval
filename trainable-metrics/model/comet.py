@@ -1,9 +1,9 @@
 import numpy as np
-import torch.nn as nn
 import torch
+import torch.nn as nn
 
 from .encoder import Encoder
-from .modules import LayerwiseAttention, FeedForward
+from .modules import FeedForward, LayerwiseAttention
 
 
 def mask_fill(
@@ -53,23 +53,23 @@ def average_pooling(
 
 
 class Comet(nn.Module):
-
     def __init__(
-            self,
-            encoder_model_name: str, 
-            use_adapters: bool = False,
-            adapter_config: str = "pfeiffer",
-            layer: int | str = "mix",
-            keep_embeddings_freezed: bool = True,
-            hidden_sizes: list[int] = [3072, 1024],
-            activations: str = "Tanh",
-            final_activation: str | None = None,
-            dropout: float = 0.1,
-            pad_token_id: int = 0
-        ) -> None:
-
+        self,
+        encoder_model_name: str,
+        use_adapters: bool = False,
+        adapter_config: str = "pfeiffer",
+        layer: int | str = "mix",
+        keep_embeddings_freezed: bool = True,
+        hidden_sizes: list[int] = [3072, 1024],
+        activations: str = "Tanh",
+        final_activation: str | None = None,
+        dropout: float = 0.1,
+        pad_token_id: int = 0,
+    ) -> None:
         super().__init__()
-        self.encoder = Encoder(encoder_model_name, use_adapters=use_adapters, adapter_config=adapter_config)
+        self.encoder = Encoder(
+            encoder_model_name, use_adapters=use_adapters, adapter_config=adapter_config
+        )
         self.estimator = FeedForward(
             in_dim=self.encoder.output_dim * 6,
             hidden_sizes=hidden_sizes,
@@ -78,10 +78,12 @@ class Comet(nn.Module):
             out_dim=1,
             dropout=dropout,
         )
-        
+
         self.layer = layer
         if self.layer == "mix":
-            self.layerwise_attention = LayerwiseAttention(num_layers=self.encoder.num_layers)
+            self.layerwise_attention = LayerwiseAttention(
+                num_layers=self.encoder.num_layers
+            )
         else:
             self.layerwise_attention = None
 
@@ -90,22 +92,22 @@ class Comet(nn.Module):
 
         self.pad_token_id = pad_token_id
 
-        
-    def compute_embeddings(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def compute_embeddings(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
         encoder_out = self.encoder(input_ids, attention_mask)
         if self.layerwise_attention:
             embeddings = self.layerwise_attention(
-                encoder_out['all_layers'], attention_mask
+                encoder_out["all_layers"], attention_mask
             )
         else:
-            embeddings = encoder_out['all_layers'][self.layer]
-            
+            embeddings = encoder_out["all_layers"][self.layer]
+
         embeddings = average_pooling(
             input_ids, embeddings, attention_mask, self.pad_token_id
         )
 
         return embeddings
-    
 
     def estimate(
         self,
@@ -137,17 +139,16 @@ class Comet(nn.Module):
 
         scores = self.estimator(embedded_sequences).view(-1)
         return scores
-    
-    def forward(
-            self,
-            src_input_ids: torch.Tensor,
-            src_attention_mask: torch.Tensor,
-            mt_input_ids: torch.Tensor,
-            mt_attention_mask: torch.Tensor,
-            ref_input_ids: torch.Tensor,
-            ref_attention_mask: torch.Tensor,
-        ) -> torch.Tensor:
 
+    def forward(
+        self,
+        src_input_ids: torch.Tensor,
+        src_attention_mask: torch.Tensor,
+        mt_input_ids: torch.Tensor,
+        mt_attention_mask: torch.Tensor,
+        ref_input_ids: torch.Tensor,
+        ref_attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
         src_sentemb = self.compute_embeddings(src_input_ids, src_attention_mask)
         mt_sentemb = self.compute_embeddings(mt_input_ids, mt_attention_mask)
         ref_sentemb = self.compute_embeddings(ref_input_ids, ref_attention_mask)

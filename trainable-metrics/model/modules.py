@@ -51,7 +51,7 @@ class FeedForward(nn.Module):
 
     def forward(self, in_features: torch.Tensor) -> torch.Tensor:
         return self.ff(in_features)
-    
+
 
 class LayerwiseAttention(nn.Module):
     def __init__(
