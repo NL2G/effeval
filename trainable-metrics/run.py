@@ -17,6 +17,7 @@ from tqdm.auto import tqdm
 from config import DATA_CONFIG, TRAINING_CONFIG
 from data_utils import load_from_config, make_collate_fn, make_preprocessing_fn
 from model.comet import Comet
+from datasets import DatasetDict
 
 
 def prepare_args():
@@ -27,10 +28,10 @@ def prepare_args():
     )
 
     parser.add_argument(
-        "--data-config",
+        "--prepared-data",
         type=str,
-        default="comet",
-        help="Data configuration to use",
+        required=True,
+        help="Path to the prepared data",
     )
     parser.add_argument(
         "--model-config",
@@ -43,12 +44,6 @@ def prepare_args():
         default=False,
         action="store_true",
         help="Use adapters",
-    )
-    parser.add_argument(
-        "--dev-size",
-        type=float,
-        default=0.01,
-        help="Size of the dev set",
     )
     parser.add_argument(
         "--seed",
@@ -75,16 +70,16 @@ def prepare_args():
         help="Adapter configuration to use",
     )
     cli_args: ap.Namespace = parser.parse_args()
-    data_args = DATA_CONFIG[cli_args.data_config]
     model_args = TRAINING_CONFIG[cli_args.model_config]
 
-    common_config: ap.Namespace = ap.Namespace(**dict(**data_args, **model_args))
+    common_config: ap.Namespace = ap.Namespace(**model_args)
     common_config.use_adapters = cli_args.use_adapters
     common_config.dev_size = cli_args.dev_size
     common_config.seed = cli_args.seed
     common_config.log_every = cli_args.log_every
     common_config.no_tqdm = cli_args.no_tqdm
     common_config.adapter_config = cli_args.adapter_config
+    common_config.prepared_data = cli_args.prepared_data
     return common_config
 
 
@@ -130,76 +125,40 @@ def main(common_config: ap.Namespace):
     logger.info(f"Using following arguments: {common_config}")
     tr.enable_full_determinism(common_config.seed)
 
-    logger.info("Loading data")
-    train, dev, test = load_from_config(
-        common_config.train,
-        common_config.test,
-        common_config.dev_size,
-        common_config.seed,
+
+    logger.info("Loading tokenizer")
+    tokenizer = tr.XLMRobertaTokenizer.from_pretrained(
+        common_config.encoder_model_name
     )
-
-    logger.info("Preprocessing data")
-
-    with accelerator.main_process_first():
-        logger.info(f"Begginning map on process {accelerator.process_index}")
-
-        logger.info("Loading tokenizer")
-        tokenizer = tr.XLMRobertaTokenizer.from_pretrained(
-            common_config.encoder_model_name
-        )
-
-        logger.info("Preparing preprocessing function")
-        preprocessing_fn = make_preprocessing_fn(tokenizer, max_length=512)
-
-        columns_to_remove = train.column_names
-        train = train.shuffle(seed=42).select(range(10000))
-        train = train.map(
-            preprocessing_fn,
-            batched=True,
-            disable_nullable=True,
-            remove_columns=columns_to_remove,
-            num_proc=12,
-        )
-        dev = dev.map(
-            preprocessing_fn,
-            batched=True,
-            disable_nullable=True,
-            remove_columns=columns_to_remove,
-            num_proc=12,
-        )
-
-        test = {
-            key: test[key].map(
-                preprocessing_fn,
-                batched=True,
-                disable_nullable=True,
-                remove_columns=columns_to_remove,
-                num_proc=12,
-            )
-            for key in test
-        }
+    
+    logger.info("Loading data")
+    data_dict = DatasetDict.load_from_disk(common_config.prepared_data)
 
     logger.info("Preparing data loaders")
     data_collator = make_collate_fn(tokenizer, max_length=512)
     train_loader = DataLoader(
-        train,
+        data_dict["train"],
         batch_size=common_config.batch_size,
         shuffle=True,
         collate_fn=data_collator,
         num_workers=2,
     )
     dev_loader = DataLoader(
-        dev, batch_size=1, shuffle=False, collate_fn=data_collator, num_workers=2
+        data_dict["dev"], 
+        batch_size=1, 
+        shuffle=False, 
+        collate_fn=data_collator, 
+        num_workers=2
     )
     test_loaders = {
-        key: DataLoader(
-            test[key],
+        key.replace("test_", ""): DataLoader(
+            data_dict[key],
             batch_size=16,
             shuffle=False,
             collate_fn=data_collator,
             num_workers=2,
         )
-        for key in test
+        for key in data_dict if key.startswith("test")
     }
 
     logger.info("Preparing model")
@@ -384,6 +343,7 @@ def main(common_config: ap.Namespace):
             logger.info("Early stopping")
             break
 
+    accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         logger.info("Evaluating on test set")
         model.eval()

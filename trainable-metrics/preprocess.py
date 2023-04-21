@@ -86,7 +86,7 @@ def main():
         "dev": dev,
     }
     for k, v in test.items():
-        _datasets[k] = v
+        _datasets[f"test_{k}"] = v
 
     datasets: DatasetDict = DatasetDict(_datasets)
 
@@ -111,7 +111,13 @@ def main():
     )
 
     logger.info("Saving data")
-    datasets.save_to_disk(args.output_dir, num_proc=args.num_processes)
+    datasets.save_to_disk(
+        args.output_dir, 
+        num_proc=args.num_processes,
+        num_shards={
+            key: 1 for key in datasets.keys()
+        }
+    )
 
 
 if __name__ == "__main__":
