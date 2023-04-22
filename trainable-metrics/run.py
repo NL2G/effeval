@@ -399,7 +399,7 @@ def main(common_config: ap.Namespace):
     std_memory_usage = np.std(model_memory_usage)
     median_memory_usage = np.median(model_memory_usage)
     
-    memory_per_token = np.array(model_n_tokens) / np.array(model_memory_usage)
+    memory_per_token = np.array(model_memory_usage) / np.array(model_n_tokens)
     mean_memory_per_token = np.mean(memory_per_token)
     std_memory_per_token = np.std(memory_per_token)
     median_memory_per_token = np.median(memory_per_token)
