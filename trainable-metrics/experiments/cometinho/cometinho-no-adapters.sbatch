@@ -4,7 +4,7 @@
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=1:00:00
+#SBATCH --time=48:00:00
 #SBATCH --job-name="cometinho-no-adapters"
 #SBATCH --output=./logs/cometinho/R-%x-%j.out
 
