@@ -4,17 +4,43 @@
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=48:00:00
+#SBATCH --time=4-00:00:00
 #SBATCH --job-name="cometinho-adapters-pfeiffer"
 #SBATCH --output=./logs/cometinho/R-%x-%j.out
 
 echo "==="
-echo "Starting training"
+echo "Starting iteration-1"
 echo "==="
-WANDB_NAME="cometinho-adapters-pfeiffer" \
+WANDB_RUN_GROUP="cometinho-adapters-pfeiffer" WANDB_NAME="cometinho-adapters-pfeiffer-21291" \
     accelerate launch run.py \
     --prepared-data="./data/cometinho-prepared" \
     --model-config="cometinho" \
     --no-tqdm \
     --use-adapters \
+    --seed=21291 \
+    --adapter-config="pfeiffer"
+
+echo "==="
+echo "Starting iteration-2"
+echo "==="
+WANDB_RUN_GROUP="cometinho-adapters-pfeiffer" WANDB_NAME="cometinho-adapters-pfeiffer-2169" \
+    accelerate launch run.py \
+    --prepared-data="./data/cometinho-prepared" \
+    --model-config="cometinho" \
+    --no-tqdm \
+    --use-adapters \
+    --seed=2169 \
+    --adapter-config="pfeiffer"
+
+
+echo "==="
+echo "Starting iteration-3"
+echo "==="
+WANDB_RUN_GROUP="cometinho-adapters-pfeiffer" WANDB_NAME="cometinho-adapters-pfeiffer-70800" \
+    accelerate launch run.py \
+    --prepared-data="./data/cometinho-prepared" \
+    --model-config="cometinho" \
+    --no-tqdm \
+    --use-adapters \
+    --seed=70800 \
     --adapter-config="pfeiffer"
