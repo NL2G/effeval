@@ -1,5 +1,6 @@
 import sys
 sys.path.insert(1, '..')
+import wandb
 import os
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # otherwise AutoTokenizer class will stop with a warning during the second run
 os.environ['MPLCONFIGDIR'] = '../../mpl_config'
@@ -21,7 +22,7 @@ import torch
 import time
 
 split_data = 0
-batch_size = 64
+batch_size = int(os.environ.get('BATCH_SIZE', 1))
 
 env_string = 'env1'
 
@@ -44,7 +45,7 @@ def main():
     # cpu models
     metrics = [bertscore]
     models = [
-        'bert-tiny', 'bert', 'tinybert', 'distilbert', 'deebert-mnli',
+        'bert-tiny', 'bert', 'tinybert', 'distilbert'
     ]
     datasets = ['wmt15', 'wmt16', 'wmt21']
     device = 'cpu'
@@ -53,7 +54,7 @@ def main():
     # gpu models
     metrics = [bertscore]
     models = [
-        'bert-tiny', 'bert', 'tinybert', 'distilbert', 'deebert-mnli',
+        'bert-tiny', 'bert', 'tinybert', 'distilbert'
     ]
     datasets = ['wmt15', 'wmt16', 'wmt21']
     device = 'gpu'
@@ -205,6 +206,27 @@ def evaluate_metrics(metrics, models, datasets, device, model2s=[''], distances=
                         print(output)
                         print('\npearson correlation: %s' % pearson)
                         output += '\npearson correlation: %s' % pearson['score']
+
+                        run = wandb.init(
+                            project='batch-size-ablation-study',
+                            entity='nllg',
+                            group=f"{metric_string}-{model_string}-{dataset}-{device}-{batch_size}",
+                        )
+                        dict_output = {
+                            'metric_string': metric_string,
+                            'model_string': model_string,
+                            'dataset': dataset,
+                            'env_string': env_string,
+                            'device': device,
+                            'duration': duration,
+                            'duration_normalized': duration / len(data[dataset]['srcs']),
+                            'num_samples': len(data[dataset]['srcs']),
+                            'peak_memory_usage': peak_memory_usage,
+                            'pearson': pearson['score'],
+                            'batch_size': batch_size
+                        }
+                        run.log(dict_output)
+                        run.finish()
 
                         # write output
                         output_directory = '../results/efficient-transformer-metrics/%s-%s/%s' % (env_string, device, metric.__name__)

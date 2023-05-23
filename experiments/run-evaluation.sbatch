@@ -5,11 +5,31 @@
 #SBATCH --exclusive
 #SBATCH --job-name="Batch-size experiments on metrics evaluation @ NLLG"
 
+echo "==="
+echo "Starting iteration-1"
+echo "==="
+BATCH_SIZE=1 python evaluate_metrics.py
+BATCH_SIZE=1 python evaluate_metrics.py
+BATCH_SIZE=1 python evaluate_metrics.py
 
-for ITER in {1..3};
-do
-    echo "====================";
-    echo "Iteration $ITER";
-    echo "====================";
-    python ./evaluate_metrics.py;
-done
+echo "==="
+echo "Starting iteration-3"
+echo "==="
+BATCH_SIZE=4 python evaluate_metrics.py
+BATCH_SIZE=4 python evaluate_metrics.py
+BATCH_SIZE=4 python evaluate_metrics.py
+
+echo "==="
+echo "Starting iteration-5"
+echo "==="
+BATCH_SIZE=16 python evaluate_metrics.py
+BATCH_SIZE=16 python evaluate_metrics.py
+BATCH_SIZE=16 python evaluate_metrics.py
+
+echo "==="
+echo "Starting iteration-7"
+echo "==="
+BATCH_SIZE=64 python evaluate_metrics.py
+BATCH_SIZE=64 python evaluate_metrics.py
+BATCH_SIZE=64 python evaluate_metrics.py
+
