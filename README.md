@@ -1,7 +1,4 @@
-Can we do that simpler?
-===
-Simple, Efficient, High-Quality Evaluation Metrics for NLG
----
+EffEval: A Comprehensive Evaluation of Efficiency for MT Evaluation Metrics
 
 This repository contains code for calculating and evaluating various efficient nlg metrics. It is structured as follows:
 
@@ -11,3 +8,4 @@ This repository contains code for calculating and evaluating various efficient n
   - for averaging the results and writing them into the Tex tables and figures, experiments/process_results/process_results.py can be used
 - Folder **metrics** contains code for calculation of the metrics (this code originates from their respective repositories)
 - Folder **datasets** contains data for training and evaluation
+- Folder **trainabled-metrics** contains code for training adapter-enabled versions of COMET and COMETINHO metrics and model implementations themselves.
