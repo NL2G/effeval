@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
 #SBATCH --exclusive
-#SBATCH --job-name="Batch-size experiments on metrics evaluation @ NLLG"
+#SBATCH --job-name="Batch-size experiments on metrics evaluation @ **REMOVED**"
 
 echo "==="
 echo "Starting iteration-1"
