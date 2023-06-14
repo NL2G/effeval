@@ -31,7 +31,7 @@ nltk==3.8.1
 numpy==1.23.5
 onnx==1.12.0
 onnxruntime==1.13.1
-optimum @ git+https://github.com/Rexhaif/optimum.git@d687891b03528d18f636f818fb563907e5ce0101
+optimum
 packaging==23.0
 pandas==1.5.3
 Pillow==9.4.0
