@@ -1,4 +1,4 @@
-Can we do that simpler?
+EffEval: A Comprehensive Evaluation of Efficiency for MT Evaluation Metrics
 ===
 Simple, Efficient, High-Quality Evaluation Metrics for NLG
 ---
