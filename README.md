@@ -11,3 +11,4 @@ This repository contains code for calculating and evaluating various efficient n
   - for averaging the results and writing them into the Tex tables and figures, experiments/process_results/process_results.py can be used
 - Folder **metrics** contains code for calculation of the metrics (this code originates from their respective repositories)
 - Folder **datasets** contains data for training and evaluation
+- Branch __trainable-metrics__ contains code for experiments related to efficient training of COMET-like metrics
